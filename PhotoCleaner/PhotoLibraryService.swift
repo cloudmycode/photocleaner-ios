@@ -60,7 +60,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     let imageManager = PHCachingImageManager()
 
-    private let candidateInterval: TimeInterval = 5
+    private let fallbackShotInterval: TimeInterval = 3
+    private let fallbackSequenceDuration: TimeInterval = 10
     private let similarityThreshold: Float = 0.34
     private let analysisCache = SimilarAnalysisCache()
     private let duplicateCache = DuplicateFingerprintCache()
@@ -132,9 +133,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             monthGroups = Self.makeMonthGroups(from: assets)
             await scanDuplicates(in: assets)
 
-            let candidates = Self.timeCandidateGroups(
+            let candidates = Self.continuousShotCandidateGroups(
                 assets: assets,
-                maximumInterval: candidateInterval
+                maximumAdjacentInterval: fallbackShotInterval,
+                maximumSequenceDuration: fallbackSequenceDuration
             )
             scanState = .analyzing(current: 0, total: candidates.count)
 
@@ -371,6 +373,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     private static func fetchImageAssets() -> [PHAsset] {
         let options = PHFetchOptions()
+        options.includeAllBurstAssets = true
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         let result = PHAsset.fetchAssets(with: .image, options: options)
         var assets: [PHAsset] = []
@@ -506,29 +509,70 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
     }
 
-    private static func timeCandidateGroups(
+    private static func continuousShotCandidateGroups(
         assets: [PHAsset],
-        maximumInterval: TimeInterval
+        maximumAdjacentInterval: TimeInterval,
+        maximumSequenceDuration: TimeInterval
     ) -> [[PHAsset]] {
-        var groups: [[PHAsset]] = []
+        let burstGroups = Dictionary(
+            grouping: assets.compactMap { asset -> (String, PHAsset)? in
+                guard let identifier = asset.burstIdentifier else { return nil }
+                return (identifier, asset)
+            },
+            by: \.0
+        )
+        .values
+        .map { $0.map(\.1).sorted(by: assetDateAscending) }
+        .filter { $0.count >= 2 }
+
+        let burstAssetIDs = Set(
+            burstGroups.flatMap { $0.map(\.localIdentifier) }
+        )
+        let fallbackAssets = assets.filter {
+            !burstAssetIDs.contains($0.localIdentifier)
+        }
+
+        var fallbackGroups: [[PHAsset]] = []
         var current: [PHAsset] = []
 
-        for asset in assets {
+        for asset in fallbackAssets {
             guard let date = asset.creationDate else { continue }
-            if let previousDate = current.last?.creationDate,
-               date.timeIntervalSince(previousDate) <= maximumInterval {
+            let previousDate = current.last?.creationDate
+            let firstDate = current.first?.creationDate
+            let isAdjacent = previousDate.map {
+                date.timeIntervalSince($0) <= maximumAdjacentInterval
+            } ?? false
+            let isShortSequence = firstDate.map {
+                date.timeIntervalSince($0) <= maximumSequenceDuration
+            } ?? false
+            let hasMatchingShape = current.last.map {
+                aspectBucket(for: $0) == aspectBucket(for: asset)
+            } ?? false
+
+            if isAdjacent && isShortSequence && hasMatchingShape {
                 current.append(asset)
             } else {
                 if current.count >= 2 {
-                    groups.append(current)
+                    fallbackGroups.append(current)
                 }
                 current = [asset]
             }
         }
         if current.count >= 2 {
-            groups.append(current)
+            fallbackGroups.append(current)
         }
-        return groups
+        return (burstGroups + fallbackGroups).sorted {
+            ($0.first?.creationDate ?? .distantPast) <
+                ($1.first?.creationDate ?? .distantPast)
+        }
+    }
+
+    nonisolated private static func assetDateAscending(
+        _ left: PHAsset,
+        _ right: PHAsset
+    ) -> Bool {
+        (left.creationDate ?? .distantPast) <
+            (right.creationDate ?? .distantPast)
     }
 
     nonisolated private static func featurePrint(for image: CGImage) -> VNFeaturePrintObservation? {
