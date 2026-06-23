@@ -126,3 +126,4 @@
 "month.progress.format" = "%d of %d reviewed";
 "month.progress.complete" = "Complete";
 "video.reset.zoom" = "Reset video zoom";
+"photo.reset.zoom" = "Reset photo zoom";

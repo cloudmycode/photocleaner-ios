@@ -212,6 +212,11 @@ struct MonthlyReviewView: View {
     @State private var removedIDs = Set<String>()
     @State private var history: [MonthReviewAction] = []
     @State private var offset: CGSize = .zero
+    @State private var photoOffset: CGSize = .zero
+    @State private var settledPhotoOffset: CGSize = .zero
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var isMagnifying = false
     @State private var showDeleteConfirmation = false
     @State private var deletionError: String?
 
@@ -314,24 +319,42 @@ struct MonthlyReviewView: View {
     }
 
     private func reviewCard(_ asset: PHAsset) -> some View {
-        PhotoThumbnailView(
-            asset: asset,
-            targetSize: CGSize(width: 880, height: 1100)
-        )
-        .id(asset.localIdentifier)
+        ZStack(alignment: .topLeading) {
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 880, height: 1100)
+            )
+            .id(asset.localIdentifier)
+            .scaleEffect(scale)
+            .offset(photoOffset)
+
+            if scale > 1.01 {
+                Button {
+                    resetPhotoTransform()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .padding(12)
+                .accessibilityLabel(Text("photo.reset.zoom"))
+            }
+        }
         .frame(maxWidth: .infinity)
         .frame(maxWidth: 440)
         .aspectRatio(0.84, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay {
-            if offset.width < -30 {
+            if scale <= 1.01, offset.width < -30 {
                 swipeBadge(
                     title: String(localized: "mark.for.deletion"),
                     systemName: "trash",
                     color: .red,
                     alignment: .topTrailing
                 )
-            } else if offset.width > 30 {
+            } else if scale <= 1.01, offset.width > 30 {
                 swipeBadge(
                     title: String(localized: "keep"),
                     systemName: "checkmark",
@@ -343,10 +366,52 @@ struct MonthlyReviewView: View {
         .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
         .offset(offset)
         .rotationEffect(.degrees(Double(offset.width / 18)))
-        .gesture(
-            DragGesture()
-                .onChanged { offset = $0.translation }
-                .onEnded { value in
+        .simultaneousGesture(monthlyMagnifyGesture)
+        .simultaneousGesture(monthlyDragGesture(for: asset))
+        .padding(.horizontal, 22)
+    }
+
+    private var monthlyMagnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                isMagnifying = true
+                scale = min(max(settledScale * value.magnification, 0.75), 4)
+                offset = .zero
+                if scale <= 1 {
+                    photoOffset = .zero
+                }
+            }
+            .onEnded { _ in
+                isMagnifying = false
+                if scale <= 1 {
+                    resetPhotoTransform()
+                } else {
+                    settledScale = scale
+                }
+            }
+    }
+
+    private func monthlyDragGesture(for asset: PHAsset) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard !isMagnifying else { return }
+                if scale > 1 {
+                    photoOffset = CGSize(
+                        width: settledPhotoOffset.width + value.translation.width,
+                        height: settledPhotoOffset.height + value.translation.height
+                    )
+                } else {
+                    offset = value.translation
+                }
+            }
+            .onEnded { value in
+                guard !isMagnifying else {
+                    offset = .zero
+                    return
+                }
+                if scale > 1 {
+                    settledPhotoOffset = photoOffset
+                } else {
                     if value.translation.width < -110 {
                         review(asset, markForDeletion: true)
                     } else if value.translation.width > 110 {
@@ -354,8 +419,7 @@ struct MonthlyReviewView: View {
                     }
                     offset = .zero
                 }
-        )
-        .padding(.horizontal, 22)
+            }
     }
 
     private func swipeBadge(
@@ -421,7 +485,7 @@ struct MonthlyReviewView: View {
         if markForDeletion {
             markedIDs.insert(id)
         }
-        offset = .zero
+        resetPhotoTransform()
     }
 
     private func undo() {
@@ -431,6 +495,7 @@ struct MonthlyReviewView: View {
         if action.markedForDeletion {
             markedIDs.remove(action.id)
         }
+        resetPhotoTransform()
     }
 
     private func deleteMarkedPhotos() {
@@ -452,6 +517,17 @@ struct MonthlyReviewView: View {
             } catch {
                 deletionError = error.localizedDescription
             }
+        }
+    }
+
+    private func resetPhotoTransform() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            scale = 1
+            settledScale = 1
+            isMagnifying = false
+            offset = .zero
+            photoOffset = .zero
+            settledPhotoOffset = .zero
         }
     }
 }
