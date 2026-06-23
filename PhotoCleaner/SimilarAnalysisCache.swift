@@ -19,7 +19,7 @@ actor SimilarAnalysisCache {
         var groups: [String: CachedSimilarGroup]
     }
 
-    private let algorithmVersion = 2
+    private let algorithmVersion = 3
     private let fileURL: URL
     private var groups: [String: CachedSimilarGroup]?
 

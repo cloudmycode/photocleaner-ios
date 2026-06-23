@@ -53,9 +53,6 @@ struct QuickCleanView: View {
             CleanerCategory.bursts(
                 count: library.burstGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
             ),
-            CleanerCategory.similar(
-                count: library.similarGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
-            ),
             CleanerCategory.screenshots(count: library.screenshotAssets.count)
         ]
     }
@@ -89,8 +86,6 @@ struct QuickCleanView: View {
                                 SimilarCleanView(mode: .duplicate)
                             } else if item.kind == .burst {
                                 SimilarCleanView(mode: .burst)
-                            } else if item.kind == .similar {
-                                SimilarCleanView(mode: .similar)
                             } else {
                                 AssetSwipeCleanView(category: item)
                             }
@@ -149,7 +144,7 @@ struct QuickCleanView: View {
         default:
             if case let .analyzing(current, total) = library.scanState {
                 return String.localizedStringWithFormat(
-                    String(localized: "similar.analyzing.format"),
+                    String(localized: "burst.analyzing.format"),
                     current,
                     total
                 )
@@ -636,7 +631,6 @@ private struct MonthAssetRow: View {
 enum PhotoGroupCleanMode {
     case duplicate
     case burst
-    case similar
 }
 
 struct SimilarCleanView: View {
@@ -654,8 +648,6 @@ struct SimilarCleanView: View {
             return library.duplicateGroups
         case .burst:
             return library.burstGroups
-        case .similar:
-            return library.similarGroups
         }
     }
 
@@ -793,12 +785,9 @@ struct SimilarCleanView: View {
                 progress.total
             )
         }
-        if mode == .burst {
-            return String(localized: "burst.reading")
-        }
         if case let .analyzing(current, total) = library.scanState {
             return String.localizedStringWithFormat(
-                String(localized: "similar.analyzing.format"),
+                String(localized: "burst.analyzing.format"),
                 current,
                 total
             )
@@ -842,8 +831,6 @@ struct SimilarCleanView: View {
             return "duplicate.title"
         case .burst:
             return "burst.title"
-        case .similar:
-            return "similar.title"
         }
     }
 
@@ -853,8 +840,6 @@ struct SimilarCleanView: View {
             return "duplicate.original.kept"
         case .burst:
             return "burst.best.pick"
-        case .similar:
-            return "similar.best.pick"
         }
     }
 
@@ -864,8 +849,6 @@ struct SimilarCleanView: View {
             return "duplicate.empty"
         case .burst:
             return "burst.empty"
-        case .similar:
-            return "similar.empty"
         }
     }
 
@@ -875,8 +858,6 @@ struct SimilarCleanView: View {
             return "duplicate.empty.description"
         case .burst:
             return "burst.empty.description"
-        case .similar:
-            return "similar.empty.description"
         }
     }
 
@@ -1696,7 +1677,7 @@ private struct PhotoPreview: View {
                     )
                     InfoPair(
                         title: String(localized: "photo.size"),
-                        value: photo.isBest ? String(localized: "similar.best.pick") : "-"
+                        value: photo.isBest ? String(localized: "burst.best.pick") : "-"
                     )
                 }
                 .padding(18)
@@ -1869,7 +1850,7 @@ private struct InfoPair: View {
 
 struct CleanerCategory: Identifiable {
     enum Kind: Hashable {
-        case duplicate, burst, similar, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
+        case duplicate, burst, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
     }
 
     var id: Kind { kind }
@@ -1888,17 +1869,6 @@ struct CleanerCategory: Identifiable {
             color: color,
             icon: icon,
             kind: kind
-        )
-    }
-
-    static func similar(count: Int) -> CleanerCategory {
-        CleanerCategory(
-            title: String(localized: "category.similar"),
-            count: count,
-            size: "",
-            color: .cleanerBlue,
-            icon: "photo.stack",
-            kind: .similar
         )
     }
 

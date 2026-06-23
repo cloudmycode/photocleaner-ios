@@ -13,7 +13,6 @@
 "videos.count.format" = "%@ videos";
 "category.duplicates" = "Duplicate Photos";
 "category.bursts" = "Burst Photos";
-"category.similar" = "Similar Photos";
 "category.screenshots" = "Screenshots";
 "category.low.quality" = "Low Quality";
 "category.all.videos" = "All Videos";
@@ -33,17 +32,13 @@
 "month.march" = "March 2026";
 "month.march.subtitle" = "260 items · 31 screenshots";
 "organized" = "Organized";
-"similar.title" = "Similar Photos";
-"similar.best.pick" = "Best pick kept";
-"similar.group.portrait" = "2 photos (portrait)";
-"similar.group.landscape" = "3 photos (landscape)";
-"similar.group.burst" = "Burst comparison";
 "group.number.format" = "Group %d";
 "burst.title" = "Burst Photos";
 "burst.best.pick" = "Recommended photo kept";
 "burst.empty" = "No Burst Photos";
 "burst.empty.description" = "No photo groups taken continuously within a few seconds were found.";
 "burst.reading" = "Finding burst photos";
+"burst.analyzing.format" = "Picking the best burst photos %d/%d";
 "burst.group.title.format" = "%@ · %d photos";
 "select.all" = "Select all";
 "select.none" = "Deselect all";
@@ -85,7 +80,6 @@
 "compress.complete.description" = "Your videos were compressed and the originals were preserved.";
 "compressed.size" = "Compressed Size";
 "settings.cleaning" = "Cleaning";
-"settings.scan.similar" = "Smart scan similar photos";
 "settings.whitelist" = "Photo ignore whitelist";
 "settings.whitelist.value" = "0 photos";
 "settings.disk.warning" = "Real-time storage warning";
@@ -103,10 +97,7 @@
 "settings.version" = "Current version";
 "delete.failed" = "Unable to Delete";
 "photo.access.required" = "Photo Access Required";
-"photo.access.description" = "Enable photo access in Settings to find similar photos.";
-"similar.empty" = "No Similar Photos";
-"similar.empty.description" = "No time-adjacent similar photo groups were found.";
-"similar.analyzing.format" = "Analyzing similar photos %d/%d";
+"photo.access.description" = "Enable photo access in Settings to find photos you can clean up.";
 "library.reading" = "Reading photo library";
 "location.available" = "Location available";
 "cleanup.complete" = "Cleanup Complete";
@@ -141,5 +132,5 @@
 "settings.photo.access.limited" = "Selected Photos";
 "settings.photo.access.none" = "Not Allowed";
 "settings.clear.cache.confirm.title" = "Clear Analysis Cache?";
-"settings.clear.cache.confirm.message" = "Duplicate and similar photos will be analyzed again the next time the app opens.";
+"settings.clear.cache.confirm.message" = "Duplicate photos and burst recommendations will be analyzed again the next time the app opens.";
 "settings.clear.cache.confirm.action" = "Clear Cache";

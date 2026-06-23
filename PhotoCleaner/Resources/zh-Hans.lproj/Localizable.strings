@@ -13,7 +13,6 @@
 "videos.count.format" = "%@ 个视频";
 "category.duplicates" = "重复照片";
 "category.bursts" = "连拍照片";
-"category.similar" = "相似照片";
 "category.screenshots" = "屏幕截图";
 "category.low.quality" = "低质量照片";
 "category.all.videos" = "全部视频";
@@ -33,17 +32,13 @@
 "month.march" = "2026 年 3 月";
 "month.march.subtitle" = "260 项 · 31 张截图";
 "organized" = "已整理";
-"similar.title" = "相似照片";
-"similar.best.pick" = "已保留最佳";
-"similar.group.portrait" = "2 张照片（竖屏人像）";
-"similar.group.landscape" = "3 张照片（横屏风景）";
-"similar.group.burst" = "连拍对比";
 "group.number.format" = "第 %d 组";
 "burst.title" = "连拍照片";
 "burst.best.pick" = "已保留推荐照片";
 "burst.empty" = "未发现连拍照片";
 "burst.empty.description" = "没有找到几秒内连续拍摄的照片组。";
 "burst.reading" = "正在查找连拍照片";
+"burst.analyzing.format" = "正在推荐连拍最佳照片 %d/%d";
 "burst.group.title.format" = "%@ · %d 张";
 "select.all" = "全选";
 "select.none" = "取消全选";
@@ -85,7 +80,6 @@
 "compress.complete.description" = "视频已完成压缩，原视频已保留。";
 "compressed.size" = "压缩后大小";
 "settings.cleaning" = "清理配置";
-"settings.scan.similar" = "智能扫描相似照片";
 "settings.whitelist" = "照片忽略白名单";
 "settings.whitelist.value" = "0 张照片";
 "settings.disk.warning" = "实时磁盘空间预警";
@@ -103,10 +97,7 @@
 "settings.version" = "当前版本";
 "delete.failed" = "无法删除";
 "photo.access.required" = "需要相册权限";
-"photo.access.description" = "请在系统设置中允许访问照片，以查找相似照片。";
-"similar.empty" = "未发现相似照片";
-"similar.empty.description" = "没有找到拍摄时间接近且画面相似的照片组。";
-"similar.analyzing.format" = "正在分析相似照片 %d/%d";
+"photo.access.description" = "请在系统设置中允许访问照片，以查找可清理的照片。";
 "library.reading" = "正在读取相册";
 "location.available" = "包含位置信息";
 "cleanup.complete" = "清理完成";
@@ -141,5 +132,5 @@
 "settings.photo.access.limited" = "部分照片";
 "settings.photo.access.none" = "未允许";
 "settings.clear.cache.confirm.title" = "清理分析缓存？";
-"settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复和相似照片。";
+"settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复照片和连拍推荐。";
 "settings.clear.cache.confirm.action" = "清理缓存";

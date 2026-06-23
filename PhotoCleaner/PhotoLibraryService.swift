@@ -56,7 +56,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var monthlyMarkedIDs: [String: Set<String>] = [:]
     @Published private(set) var duplicateGroups: [SimilarAssetGroup] = []
     @Published private(set) var burstGroups: [SimilarAssetGroup] = []
-    @Published private(set) var similarGroups: [SimilarAssetGroup] = []
     @Published private(set) var duplicateScanProgress: (current: Int, total: Int)?
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
@@ -65,7 +64,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     private let fallbackShotInterval: TimeInterval = 3
     private let fallbackSequenceDuration: TimeInterval = 10
-    private let similarityThreshold: Float = 0.34
     private let analysisCache = SimilarAnalysisCache()
     private let duplicateCache = DuplicateFingerprintCache()
     private let monthlyReviewStore = MonthlyReviewStore()
@@ -107,7 +105,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             scanState = .loadingLibrary
             duplicateGroups = []
             burstGroups = []
-            similarGroups = []
 
             let assets = Self.fetchImageAssets()
             let videos = Self.fetchVideoAssets()
@@ -139,14 +136,14 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 maximumAdjacentInterval: fallbackShotInterval,
                 maximumSequenceDuration: fallbackSequenceDuration
             )
-            burstGroups = candidates
+            var analyzedBurstGroups = candidates
                 .map(Self.makeBurstGroup)
                 .sorted {
                     ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
                 }
+            burstGroups = analyzedBurstGroups
             scanState = .analyzing(current: 0, total: candidates.count)
 
-            var groups: [SimilarAssetGroup] = []
             var activeCache: [String: CachedSimilarGroup] = [:]
             for (index, candidate) in candidates.enumerated() {
                 guard !Task.isCancelled else { return }
@@ -158,7 +155,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                     activeCache[signature] = cached
                     group = Self.restoreGroup(cached, from: candidate)
                 } else {
-                    group = await analyze(candidate)
+                    group = await analyzeBurstGroup(candidate)
                     activeCache[signature] = Self.cacheGroup(
                         group,
                         signature: signature
@@ -166,8 +163,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 }
 
                 if let group {
-                    groups.append(group)
-                    similarGroups = groups.sorted {
+                    if let groupIndex = analyzedBurstGroups.firstIndex(where: { $0.id == group.id }) {
+                        analyzedBurstGroups[groupIndex] = group
+                    }
+                    burstGroups = analyzedBurstGroups.sorted {
                         ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
                     }
                 }
@@ -384,7 +383,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         duplicateScanProgress = nil
     }
 
-    private func analyze(_ assets: [PHAsset]) async -> SimilarAssetGroup? {
+    private func analyzeBurstGroup(_ assets: [PHAsset]) async -> SimilarAssetGroup? {
         var analyzed: [AnalyzedAsset] = []
 
         for asset in assets {
@@ -395,10 +394,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
 
             if let result = await Task.detached(priority: .utility, operation: { () -> AnalyzedAsset? in
-                guard let feature = Self.featurePrint(for: cgImage) else { return nil }
                 return AnalyzedAsset(
                     asset: asset,
-                    feature: feature,
                     qualityScore: Self.qualityScore(for: cgImage, asset: asset)
                 )
             }).value {
@@ -407,19 +404,19 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
 
         guard analyzed.count >= 2 else { return nil }
-        let threshold = similarityThreshold
-        let similar = await Task.detached(priority: .utility) {
-            Self.largestConnectedGroup(analyzed, threshold: threshold)
-        }.value
-        guard similar.count >= 2 else { return nil }
-
-        let bestID = similar.max(by: { $0.qualityScore < $1.qualityScore })?.asset.localIdentifier
-        let results = similar.map {
-            SimilarAsset(
-                id: $0.asset.localIdentifier,
-                asset: $0.asset,
-                qualityScore: $0.qualityScore,
-                isBest: $0.asset.localIdentifier == bestID
+        let analyzedByID = Dictionary(
+            uniqueKeysWithValues: analyzed.map { ($0.asset.localIdentifier, $0) }
+        )
+        let bestID = analyzed.max(by: { $0.qualityScore < $1.qualityScore })?
+            .asset.localIdentifier
+        let results = assets.sorted(by: Self.assetDateAscending).map { asset in
+            let qualityScore = analyzedByID[asset.localIdentifier]?.qualityScore ??
+                Self.qualityScore(forMetadata: asset)
+            return SimilarAsset(
+                id: asset.localIdentifier,
+                asset: asset,
+                qualityScore: qualityScore,
+                isBest: asset.localIdentifier == bestID
             )
         }
 
@@ -700,63 +697,28 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             (right.creationDate ?? .distantPast)
     }
 
-    nonisolated private static func featurePrint(for image: CGImage) -> VNFeaturePrintObservation? {
-        let request = VNGenerateImageFeaturePrintRequest()
-        request.revision = VNGenerateImageFeaturePrintRequestRevision2
-        let handler = VNImageRequestHandler(cgImage: image, orientation: .up)
-        try? handler.perform([request])
-        return request.results?.first as? VNFeaturePrintObservation
-    }
-
-    nonisolated private static func largestConnectedGroup(
-        _ assets: [AnalyzedAsset],
-        threshold: Float
-    ) -> [AnalyzedAsset] {
-        var adjacency = Array(repeating: [Int](), count: assets.count)
-        for left in assets.indices {
-            for right in assets.indices where right > left {
-                var distance: Float = .greatestFiniteMagnitude
-                if (try? assets[left].feature.computeDistance(
-                    &distance,
-                    to: assets[right].feature
-                )) != nil, distance <= threshold {
-                    adjacency[left].append(right)
-                    adjacency[right].append(left)
-                }
-            }
-        }
-
-        var visited = Set<Int>()
-        var largest: [Int] = []
-        for start in assets.indices where !visited.contains(start) {
-            var queue = [start]
-            var component: [Int] = []
-            visited.insert(start)
-            while let current = queue.popLast() {
-                component.append(current)
-                for next in adjacency[current] where !visited.contains(next) {
-                    visited.insert(next)
-                    queue.append(next)
-                }
-            }
-            if component.count > largest.count {
-                largest = component
-            }
-        }
-        return largest.map { assets[$0] }
-    }
-
     nonisolated private static func qualityScore(for image: CGImage, asset: PHAsset) -> Double {
         let sharpness = edgeEnergy(for: image)
         let resolution = log2(Double(max(asset.pixelWidth * asset.pixelHeight, 1))) / 30
+        let faceQuality = faceCaptureQuality(for: image) ?? sharpness
         let favoriteBonus = asset.isFavorite ? 0.08 : 0
-        return sharpness * 0.72 + resolution * 0.28 + favoriteBonus
+        return sharpness * 0.58 + faceQuality * 0.24 + resolution * 0.18 + favoriteBonus
     }
 
     nonisolated private static func qualityScore(forMetadata asset: PHAsset) -> Double {
         let resolution = log2(Double(max(asset.pixelWidth * asset.pixelHeight, 1))) / 30
         let favoriteBonus = asset.isFavorite ? 0.2 : 0
         return resolution + favoriteBonus
+    }
+
+    nonisolated private static func faceCaptureQuality(for image: CGImage) -> Double? {
+        let request = VNDetectFaceCaptureQualityRequest()
+        let handler = VNImageRequestHandler(cgImage: image, orientation: .up)
+        try? handler.perform([request])
+        return request.results?
+            .compactMap(\.faceCaptureQuality)
+            .map(Double.init)
+            .max()
     }
 
     nonisolated private static func edgeEnergy(for image: CGImage) -> Double {
@@ -802,7 +764,6 @@ extension PhotoLibraryService: PHPhotoLibraryChangeObserver {
 
 private struct AnalyzedAsset {
     let asset: PHAsset
-    let feature: VNFeaturePrintObservation
     let qualityScore: Double
 }
 

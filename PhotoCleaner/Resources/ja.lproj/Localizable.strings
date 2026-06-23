@@ -13,7 +13,6 @@
 "videos.count.format" = "%@ 本の動画";
 "category.duplicates" = "重複写真";
 "category.bursts" = "連写写真";
-"category.similar" = "類似写真";
 "category.screenshots" = "スクリーンショット";
 "category.low.quality" = "低品質";
 "category.all.videos" = "すべての動画";
@@ -33,17 +32,13 @@
 "month.march" = "2026年3月";
 "month.march.subtitle" = "260 件 · スクショ 31";
 "organized" = "整理済み";
-"similar.title" = "類似写真";
-"similar.best.pick" = "ベストを保持";
-"similar.group.portrait" = "2枚の写真（縦）";
-"similar.group.landscape" = "3枚の写真（横）";
-"similar.group.burst" = "連写比較";
 "group.number.format" = "グループ %d";
 "burst.title" = "連写写真";
 "burst.best.pick" = "おすすめを保持";
 "burst.empty" = "連写写真はありません";
 "burst.empty.description" = "数秒以内に連続撮影された写真グループは見つかりませんでした。";
 "burst.reading" = "連写写真を検索中";
+"burst.analyzing.format" = "連写のおすすめ写真を選択中 %d/%d";
 "burst.group.title.format" = "%@ · %d 枚";
 "select.all" = "すべて選択";
 "select.none" = "すべて解除";
@@ -85,7 +80,6 @@
 "compress.complete.description" = "動画の圧縮が完了し、元動画は保持されました。";
 "compressed.size" = "圧縮後サイズ";
 "settings.cleaning" = "整理設定";
-"settings.scan.similar" = "類似写真をスマートスキャン";
 "settings.whitelist" = "写真の除外リスト";
 "settings.whitelist.value" = "0 枚";
 "settings.disk.warning" = "容量不足のリアルタイム警告";
@@ -103,10 +97,7 @@
 "settings.version" = "現在のバージョン";
 "delete.failed" = "削除できません";
 "photo.access.required" = "写真へのアクセスが必要です";
-"photo.access.description" = "類似写真を検索するには、設定で写真へのアクセスを許可してください。";
-"similar.empty" = "類似写真はありません";
-"similar.empty.description" = "撮影時刻が近く、画像が類似する写真グループは見つかりませんでした。";
-"similar.analyzing.format" = "類似写真を解析中 %d/%d";
+"photo.access.description" = "整理できる写真を探すには、設定で写真へのアクセスを許可してください。";
 "library.reading" = "写真ライブラリを読み込み中";
 "location.available" = "位置情報あり";
 "cleanup.complete" = "整理完了";
@@ -141,5 +132,5 @@
 "settings.photo.access.limited" = "選択した写真";
 "settings.photo.access.none" = "許可されていません";
 "settings.clear.cache.confirm.title" = "解析キャッシュを削除しますか？";
-"settings.clear.cache.confirm.message" = "次回起動時に重複写真と類似写真を再解析します。";
+"settings.clear.cache.confirm.message" = "次回起動時に重複写真と連写のおすすめを再解析します。";
 "settings.clear.cache.confirm.action" = "キャッシュを削除";
