@@ -1,3 +1,4 @@
+import AVKit
 import Photos
 import SwiftUI
 
@@ -820,30 +821,40 @@ struct AssetSwipeCleanView: View {
 
     private func photoCard(_ asset: PHAsset) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            PhotoThumbnailView(
-                asset: asset,
-                targetSize: CGSize(width: 880, height: 1100)
-            )
-            .id(asset.localIdentifier)
-            .frame(maxWidth: .infinity)
-            .frame(maxWidth: 440)
-            .aspectRatio(0.84, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 22))
-            .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
-            .offset(offset)
-            .rotationEffect(.degrees(Double(offset.width / 18)))
-            .gesture(
-                DragGesture()
-                    .onChanged { offset = $0.translation }
-                    .onEnded { value in
-                        if value.translation.width < -110 {
-                            delete(asset)
-                        } else if value.translation.width > 110 {
-                            keep(asset)
+            if asset.mediaType == .video {
+                InteractiveVideoPreview(asset: asset)
+                    .id(asset.localIdentifier)
+                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: 440)
+                    .aspectRatio(0.84, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 22))
+                    .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+            } else {
+                PhotoThumbnailView(
+                    asset: asset,
+                    targetSize: CGSize(width: 880, height: 1100)
+                )
+                .id(asset.localIdentifier)
+                .frame(maxWidth: .infinity)
+                .frame(maxWidth: 440)
+                .aspectRatio(0.84, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+                .offset(offset)
+                .rotationEffect(.degrees(Double(offset.width / 18)))
+                .gesture(
+                    DragGesture()
+                        .onChanged { offset = $0.translation }
+                        .onEnded { value in
+                            if value.translation.width < -110 {
+                                delete(asset)
+                            } else if value.translation.width > 110 {
+                                keep(asset)
+                            }
+                            offset = .zero
                         }
-                        offset = .zero
-                    }
-            )
+                )
+            }
 
             Button {
                 showInfo.toggle()
@@ -957,6 +968,107 @@ struct AssetSwipeCleanView: View {
                 favoriteOverrides[asset.localIdentifier] = asset.isFavorite
                 operationError = error.localizedDescription
             }
+        }
+    }
+}
+
+private struct InteractiveVideoPreview: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let asset: PHAsset
+
+    @State private var player: AVPlayer?
+    @State private var requestID: PHImageRequestID?
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var settledOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.black
+
+            if let player {
+                VideoPlayer(player: player)
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .simultaneousGesture(magnifyGesture)
+                    .simultaneousGesture(panGesture)
+            } else {
+                ProgressView()
+                    .tint(.white)
+            }
+
+            if scale > 1.01 {
+                Button {
+                    resetTransform()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .padding(12)
+                .accessibilityLabel(Text("video.reset.zoom"))
+            }
+        }
+        .clipped()
+        .onAppear {
+            requestPlayer()
+        }
+        .onDisappear {
+            player?.pause()
+            if let requestID {
+                library.cancelImageRequest(requestID)
+            }
+        }
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                scale = min(max(settledScale * value.magnification, 1), 4)
+                if scale <= 1.01 {
+                    offset = .zero
+                }
+            }
+            .onEnded { _ in
+                settledScale = scale
+                if scale <= 1.01 {
+                    settledOffset = .zero
+                }
+            }
+    }
+
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard scale > 1.01 else { return }
+                offset = CGSize(
+                    width: settledOffset.width + value.translation.width,
+                    height: settledOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                settledOffset = offset
+            }
+    }
+
+    private func requestPlayer() {
+        requestID = library.requestPlayerItem(for: asset) { item in
+            guard let item else { return }
+            let newPlayer = AVPlayer(playerItem: item)
+            player = newPlayer
+            newPlayer.play()
+        }
+    }
+
+    private func resetTransform() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            scale = 1
+            settledScale = 1
+            offset = .zero
+            settledOffset = .zero
         }
     }
 }

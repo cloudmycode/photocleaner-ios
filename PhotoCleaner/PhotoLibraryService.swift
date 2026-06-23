@@ -1,5 +1,6 @@
 import CoreGraphics
 import CryptoKit
+import AVFoundation
 import Photos
 import SwiftUI
 import UIKit
@@ -200,6 +201,23 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     func cancelImageRequest(_ requestID: PHImageRequestID) {
         imageManager.cancelImageRequest(requestID)
+    }
+
+    func requestPlayerItem(
+        for asset: PHAsset,
+        completion: @escaping (AVPlayerItem?) -> Void
+    ) -> PHImageRequestID {
+        let options = PHVideoRequestOptions()
+        options.deliveryMode = .automatic
+        options.version = .current
+        options.isNetworkAccessAllowed = true
+
+        return imageManager.requestPlayerItem(
+            forVideo: asset,
+            options: options
+        ) { playerItem, _ in
+            completion(playerItem)
+        }
     }
 
     func deleteAssets(with identifiers: Set<String>) async throws {

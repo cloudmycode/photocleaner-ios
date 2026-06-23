@@ -125,3 +125,4 @@
 "cancel" = "Cancel";
 "month.progress.format" = "%d of %d reviewed";
 "month.progress.complete" = "Complete";
+"video.reset.zoom" = "Reset video zoom";

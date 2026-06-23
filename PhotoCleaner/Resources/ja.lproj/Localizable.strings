@@ -125,3 +125,4 @@
 "cancel" = "キャンセル";
 "month.progress.format" = "%d/%d 確認済み";
 "month.progress.complete" = "完了";
+"video.reset.zoom" = "動画のズームをリセット";
