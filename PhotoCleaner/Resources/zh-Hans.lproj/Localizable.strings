@@ -109,3 +109,8 @@
 "photo.access.requesting" = "正在请求相册权限";
 "compress.not.available" = "视频压缩功能尚未启用，上方数量和预览均来自真实系统相册。";
 "open.settings" = "打开系统设置";
+"duplicate.title" = "重复照片";
+"duplicate.original.kept" = "已保留原图";
+"duplicate.empty" = "未发现重复照片";
+"duplicate.empty.description" = "没有找到画面内容一致的照片副本。";
+"duplicate.analyzing.format" = "正在检查重复照片 %d/%d";

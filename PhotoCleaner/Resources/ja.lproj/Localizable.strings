@@ -109,3 +109,8 @@
 "photo.access.requesting" = "写真へのアクセスを要求中";
 "compress.not.available" = "動画圧縮はまだ有効ではありません。上記の件数とプレビューは実際の写真ライブラリのデータです。";
 "open.settings" = "設定を開く";
+"duplicate.title" = "重複写真";
+"duplicate.original.kept" = "元の写真を保持";
+"duplicate.empty" = "重複写真はありません";
+"duplicate.empty.description" = "同じ内容の写真コピーは見つかりませんでした。";
+"duplicate.analyzing.format" = "重複写真を確認中 %d/%d";

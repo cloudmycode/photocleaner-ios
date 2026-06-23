@@ -46,6 +46,9 @@ struct QuickCleanView: View {
 
     private var photoItems: [CleanerCategory] {
         [
+            CleanerCategory.duplicates(
+                count: library.duplicateGroups.reduce(0) { $0 + $1.assets.count }
+            ),
             CleanerCategory.similar(
                 count: library.similarGroups.reduce(0) { $0 + $1.assets.count }
             ),
@@ -79,8 +82,10 @@ struct QuickCleanView: View {
                 CleanerSection(title: String(localized: "section.photos")) {
                     ForEach(photoItems) { item in
                         NavigationLink {
-                            if item.kind == .similar {
-                                SimilarCleanView()
+                            if item.kind == .duplicate {
+                                SimilarCleanView(mode: .duplicate)
+                            } else if item.kind == .similar {
+                                SimilarCleanView(mode: .similar)
                             } else {
                                 AssetSwipeCleanView(category: item)
                             }
@@ -253,23 +258,32 @@ private struct MonthAssetRow: View {
     }
 }
 
+enum PhotoGroupCleanMode {
+    case duplicate
+    case similar
+}
+
 struct SimilarCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    let mode: PhotoGroupCleanMode
     @State private var selectedIDs = Set<String>()
     @State private var previewPhoto: SimilarAsset?
     @State private var deletionError: String?
 
     private var selectedCount: Int { selectedIDs.count }
+    private var groups: [SimilarAssetGroup] {
+        mode == .duplicate ? library.duplicateGroups : library.similarGroups
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("similar.title")
+                        Text(titleKey)
                             .font(.title2.bold())
                         Spacer()
-                        Text("similar.best.pick")
+                        Text(keptKey)
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
@@ -278,9 +292,9 @@ struct SimilarCleanView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("similar.title")
+                        Text(titleKey)
                             .font(.title2.bold())
-                        Text("similar.best.pick")
+                        Text(keptKey)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.cleanerGreen)
                     }
@@ -319,7 +333,7 @@ struct SimilarCleanView: View {
         } message: {
             Text(deletionError ?? "")
         }
-        .onChange(of: library.similarGroups.map(\.id)) {
+        .onChange(of: groups.map(\.id)) {
             selectNonBestPhotos()
         }
         .onAppear {
@@ -339,12 +353,12 @@ struct SimilarCleanView: View {
             )
             .padding(.top, 60)
         default:
-            if library.similarGroups.isEmpty {
+            if groups.isEmpty {
                 if library.scanState == .finished {
                     ContentUnavailableView(
-                        "similar.empty",
+                        emptyTitleKey,
                         systemImage: "checkmark.circle",
-                        description: Text("similar.empty.description")
+                        description: Text(emptyDescriptionKey)
                     )
                     .padding(.top, 60)
                 } else {
@@ -358,7 +372,7 @@ struct SimilarCleanView: View {
                     .padding(.top, 60)
                 }
             } else {
-                ForEach(Array(library.similarGroups.enumerated()), id: \.element.id) { index, group in
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     SimilarGroup(
                         title: groupTitle(group, index: index),
                         group: group,
@@ -371,6 +385,14 @@ struct SimilarCleanView: View {
     }
 
     private var scanDescription: String {
+        if mode == .duplicate,
+           let progress = library.duplicateScanProgress {
+            return String.localizedStringWithFormat(
+                String(localized: "duplicate.analyzing.format"),
+                progress.current,
+                progress.total
+            )
+        }
         if case let .analyzing(current, total) = library.scanState {
             return String.localizedStringWithFormat(
                 String(localized: "similar.analyzing.format"),
@@ -387,16 +409,32 @@ struct SimilarCleanView: View {
     }
 
     private func selectNonBestPhotos() {
-        let available = Set(library.similarGroups.flatMap(\.assets).map(\.id))
+        let available = Set(groups.flatMap(\.assets).map(\.id))
         selectedIDs.formIntersection(available)
         if selectedIDs.isEmpty {
             selectedIDs = Set(
-                library.similarGroups
+                groups
                     .flatMap(\.assets)
                     .filter { !$0.isBest }
                     .map(\.id)
             )
         }
+    }
+
+    private var titleKey: LocalizedStringKey {
+        mode == .duplicate ? "duplicate.title" : "similar.title"
+    }
+
+    private var keptKey: LocalizedStringKey {
+        mode == .duplicate ? "duplicate.original.kept" : "similar.best.pick"
+    }
+
+    private var emptyTitleKey: LocalizedStringKey {
+        mode == .duplicate ? "duplicate.empty" : "similar.empty"
+    }
+
+    private var emptyDescriptionKey: LocalizedStringKey {
+        mode == .duplicate ? "duplicate.empty.description" : "similar.empty.description"
     }
 
     private func toggle(_ photo: SimilarAsset) {
@@ -1194,6 +1232,17 @@ struct CleanerCategory: Identifiable {
             color: .cleanerBlue,
             icon: "photo.stack",
             kind: .similar
+        )
+    }
+
+    static func duplicates(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.duplicates"),
+            count: count,
+            size: "",
+            color: .orange,
+            icon: "rectangle.on.rectangle",
+            kind: .duplicate
         )
     }
 

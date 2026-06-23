@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Photos
 import SwiftUI
 import UIKit
@@ -51,7 +52,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var largeVideoAssets: [PHAsset] = []
     @Published private(set) var screenRecordingAssets: [PHAsset] = []
     @Published private(set) var monthGroups: [PhotoMonthGroup] = []
+    @Published private(set) var duplicateGroups: [SimilarAssetGroup] = []
     @Published private(set) var similarGroups: [SimilarAssetGroup] = []
+    @Published private(set) var duplicateScanProgress: (current: Int, total: Int)?
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
 
@@ -60,6 +63,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private let candidateInterval: TimeInterval = 5
     private let similarityThreshold: Float = 0.34
     private let analysisCache = SimilarAnalysisCache()
+    private let duplicateCache = DuplicateFingerprintCache()
     private var scanTask: Task<Void, Never>?
 
     override init() {
@@ -96,6 +100,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         scanTask = Task { [weak self] in
             guard let self else { return }
             scanState = .loadingLibrary
+            duplicateGroups = []
             similarGroups = []
 
             let assets = Self.fetchImageAssets()
@@ -125,6 +130,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                     .reversed()
             )
             monthGroups = Self.makeMonthGroups(from: assets)
+            await scanDuplicates(in: assets)
 
             let candidates = Self.timeCandidateGroups(
                 assets: assets,
@@ -161,7 +167,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 await Task.yield()
             }
             try? await analysisCache.replace(with: activeCache)
-            analysisCacheSize = await analysisCache.sizeInBytes()
+            analysisCacheSize = await analysisCache.sizeInBytes() +
+                duplicateCache.sizeInBytes()
             scanState = .finished
         }
     }
@@ -215,9 +222,59 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         scanTask?.cancel()
         Task {
             try? await analysisCache.clear()
+            try? await duplicateCache.clear()
             analysisCacheSize = 0
             scanState = .idle
         }
+    }
+
+    private func scanDuplicates(in assets: [PHAsset]) async {
+        duplicateScanProgress = (0, assets.count)
+        var activeCache: [String: CachedPhotoFingerprint] = [:]
+        var assetsByFingerprint: [String: [PHAsset]] = [:]
+
+        for (index, asset) in assets.enumerated() {
+            guard !Task.isCancelled else { return }
+            let signature = PhotoFingerprintSignature.make(for: asset)
+            let id = asset.localIdentifier
+            let fingerprint: String?
+
+            if let cached = await duplicateCache.fingerprint(
+                for: id,
+                signature: signature
+            ) {
+                fingerprint = cached
+            } else if let image = await requestFingerprintImage(for: asset) {
+                fingerprint = await Task.detached(priority: .utility) {
+                    Self.duplicateFingerprint(for: image)
+                }.value
+            } else {
+                fingerprint = nil
+            }
+
+            if let fingerprint {
+                activeCache[id] = CachedPhotoFingerprint(
+                    signature: signature,
+                    fingerprint: fingerprint
+                )
+                let aspectBucket = Self.aspectBucket(for: asset)
+                assetsByFingerprint["\(aspectBucket):\(fingerprint)", default: []]
+                    .append(asset)
+            }
+            duplicateScanProgress = (index + 1, assets.count)
+            if index.isMultiple(of: 20) {
+                await Task.yield()
+            }
+        }
+
+        duplicateGroups = assetsByFingerprint.values
+            .filter { $0.count >= 2 }
+            .map(Self.makeDuplicateGroup)
+            .sorted {
+                ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+            }
+        try? await duplicateCache.replace(with: activeCache)
+        duplicateScanProgress = nil
     }
 
     private func analyze(_ assets: [PHAsset]) async -> SimilarAssetGroup? {
@@ -289,6 +346,29 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    private func requestFingerprintImage(for asset: PHAsset) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .highQualityFormat
+            options.resizeMode = .exact
+            options.isNetworkAccessAllowed = false
+
+            var resumed = false
+            imageManager.requestImage(
+                for: asset,
+                targetSize: CGSize(width: 64, height: 64),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, info in
+                let degraded = info?[PHImageResultIsDegradedKey] as? Bool ?? false
+                let cancelled = info?[PHImageCancelledKey] as? Bool ?? false
+                guard !resumed, !degraded else { return }
+                resumed = true
+                continuation.resume(returning: cancelled ? nil : image?.cgImage)
+            }
+        }
+    }
+
     private static func fetchImageAssets() -> [PHAsset] {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
@@ -333,6 +413,56 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 )
             }
             .sorted { $0.date > $1.date }
+    }
+
+    nonisolated private static func duplicateFingerprint(for image: CGImage) -> String? {
+        let width = 32
+        let height = 32
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else {
+            return nil
+        }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let quantized = pixels.map { $0 & 0xF0 }
+        return SHA256.hash(data: Data(quantized))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    nonisolated private static func aspectBucket(for asset: PHAsset) -> Int {
+        guard asset.pixelHeight > 0 else { return 0 }
+        return Int((Double(asset.pixelWidth) / Double(asset.pixelHeight) * 1000).rounded())
+    }
+
+    private static func makeDuplicateGroup(_ assets: [PHAsset]) -> SimilarAssetGroup {
+        let sorted = assets.sorted {
+            ($0.creationDate ?? .distantPast) < ($1.creationDate ?? .distantPast)
+        }
+        let keepID = sorted.first(where: \.isFavorite)?.localIdentifier ??
+            sorted.first?.localIdentifier
+        let results = sorted.map {
+            SimilarAsset(
+                id: $0.localIdentifier,
+                asset: $0,
+                qualityScore: 0,
+                isBest: $0.localIdentifier == keepID
+            )
+        }
+        return SimilarAssetGroup(
+            id: results.map(\.id).sorted().joined(separator: "|"),
+            assets: results,
+            creationDate: sorted.first?.creationDate
+        )
     }
 
     private static func restoreGroup(

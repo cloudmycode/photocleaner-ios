@@ -109,3 +109,8 @@
 "photo.access.requesting" = "Requesting photo access";
 "compress.not.available" = "Video compression is not enabled yet. The counts and previews above come from your real photo library.";
 "open.settings" = "Open Settings";
+"duplicate.title" = "Duplicate Photos";
+"duplicate.original.kept" = "Original kept";
+"duplicate.empty" = "No Duplicate Photos";
+"duplicate.empty.description" = "No matching photo copies were found.";
+"duplicate.analyzing.format" = "Checking duplicate photos %d/%d";

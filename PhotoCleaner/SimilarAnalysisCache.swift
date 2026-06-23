@@ -104,3 +104,90 @@ enum SimilarAnalysisSignature {
         String(format: "%.3f", date?.timeIntervalSince1970 ?? 0)
     }
 }
+
+struct CachedPhotoFingerprint: Codable {
+    let signature: String
+    let fingerprint: String
+}
+
+actor DuplicateFingerprintCache {
+    private struct Payload: Codable {
+        let version: Int
+        var fingerprints: [String: CachedPhotoFingerprint]
+    }
+
+    private let algorithmVersion = 1
+    private let fileURL: URL
+    private var fingerprints: [String: CachedPhotoFingerprint]?
+
+    init() {
+        let baseURL = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first!
+        let directory = baseURL.appendingPathComponent(
+            "DuplicateAnalysis",
+            isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        fileURL = directory.appendingPathComponent("fingerprints.json")
+    }
+
+    func fingerprint(for id: String, signature: String) -> String? {
+        loadIfNeeded()
+        guard let cached = fingerprints?[id],
+              cached.signature == signature else {
+            return nil
+        }
+        return cached.fingerprint
+    }
+
+    func replace(with values: [String: CachedPhotoFingerprint]) throws {
+        fingerprints = values
+        let data = try JSONEncoder().encode(
+            Payload(version: algorithmVersion, fingerprints: values)
+        )
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    func clear() throws {
+        fingerprints = [:]
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    func sizeInBytes() -> Int64 {
+        guard let attributes = try? FileManager.default.attributesOfItem(
+            atPath: fileURL.path
+        ) else {
+            return 0
+        }
+        return attributes[.size] as? Int64 ?? 0
+    }
+
+    private func loadIfNeeded() {
+        guard fingerprints == nil else { return }
+        guard let data = try? Data(contentsOf: fileURL),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == algorithmVersion else {
+            fingerprints = [:]
+            return
+        }
+        fingerprints = payload.fingerprints
+    }
+}
+
+enum PhotoFingerprintSignature {
+    static func make(for asset: PHAsset) -> String {
+        [
+            asset.localIdentifier,
+            String(format: "%.3f", asset.modificationDate?.timeIntervalSince1970 ?? 0),
+            String(asset.pixelWidth),
+            String(asset.pixelHeight)
+        ].joined(separator: ":")
+    }
+}
