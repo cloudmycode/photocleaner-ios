@@ -162,6 +162,21 @@ struct QuickCleanView: View {
 struct AlbumsView: View {
     @EnvironmentObject private var library: PhotoLibraryService
 
+    private var yearGroups: [PhotoYearGroup] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: library.monthGroups) {
+            calendar.component(.year, from: $0.date)
+        }
+        return grouped
+            .map { year, months in
+                PhotoYearGroup(
+                    year: year,
+                    months: months.sorted { $0.date > $1.date }
+                )
+            }
+            .sorted { $0.year > $1.year }
+    }
+
     var body: some View {
         CleanerScroll {
             CleanerHeader(title: String(localized: "tab.albums"))
@@ -176,24 +191,32 @@ struct AlbumsView: View {
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 40)
             } else {
-                ForEach(library.monthGroups) { month in
-                    CleanerSection(title: month.date.formatted(.dateTime.year())) {
-                        NavigationLink {
-                            MonthlyReviewView(
-                                monthID: month.id,
-                                title: month.date.formatted(.dateTime.year().month(.wide)),
-                                assets: month.assets
-                            )
-                        } label: {
-                            MonthAssetRow(group: month)
+                ForEach(yearGroups) { yearGroup in
+                    CleanerSection(title: String(yearGroup.year)) {
+                        ForEach(yearGroup.months) { month in
+                            NavigationLink {
+                                MonthlyReviewView(
+                                    monthID: month.id,
+                                    title: month.date.formatted(.dateTime.year().month(.wide)),
+                                    assets: month.assets
+                                )
+                            } label: {
+                                MonthAssetRow(group: month)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
         }
         .background(Color.cleanerBackground)
     }
+}
+
+private struct PhotoYearGroup: Identifiable {
+    var id: Int { year }
+    let year: Int
+    let months: [PhotoMonthGroup]
 }
 
 private struct MonthReviewAction {
@@ -599,6 +622,9 @@ private struct MonthAssetRow: View {
         .padding(.vertical, 10)
         .frame(minHeight: 88)
         .background(.white)
+        .overlay(alignment: .bottom) {
+            Divider().padding(.leading, 92)
+        }
     }
 }
 
