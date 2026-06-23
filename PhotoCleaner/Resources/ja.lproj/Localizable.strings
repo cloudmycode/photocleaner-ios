@@ -12,6 +12,7 @@
 "items.count.format" = "%lld 件";
 "videos.count.format" = "%@ 本の動画";
 "category.duplicates" = "重複写真";
+"category.bursts" = "連写写真";
 "category.similar" = "類似写真";
 "category.screenshots" = "スクリーンショット";
 "category.low.quality" = "低品質";
@@ -37,6 +38,13 @@
 "similar.group.portrait" = "2枚の写真（縦）";
 "similar.group.landscape" = "3枚の写真（横）";
 "similar.group.burst" = "連写比較";
+"group.number.format" = "グループ %d";
+"burst.title" = "連写写真";
+"burst.best.pick" = "おすすめを保持";
+"burst.empty" = "連写写真はありません";
+"burst.empty.description" = "数秒以内に連続撮影された写真グループは見つかりませんでした。";
+"burst.reading" = "連写写真を検索中";
+"burst.group.title.format" = "%@ · %d 枚";
 "select.all" = "すべて選択";
 "select.none" = "すべて解除";
 "selected.photos.format" = "%lld 枚を選択中";

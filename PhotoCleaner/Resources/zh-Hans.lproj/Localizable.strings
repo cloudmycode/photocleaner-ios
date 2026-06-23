@@ -12,6 +12,7 @@
 "items.count.format" = "%lld 项";
 "videos.count.format" = "%@ 个视频";
 "category.duplicates" = "重复照片";
+"category.bursts" = "连拍照片";
 "category.similar" = "相似照片";
 "category.screenshots" = "屏幕截图";
 "category.low.quality" = "低质量照片";
@@ -37,6 +38,13 @@
 "similar.group.portrait" = "2 张照片（竖屏人像）";
 "similar.group.landscape" = "3 张照片（横屏风景）";
 "similar.group.burst" = "连拍对比";
+"group.number.format" = "第 %d 组";
+"burst.title" = "连拍照片";
+"burst.best.pick" = "已保留推荐照片";
+"burst.empty" = "未发现连拍照片";
+"burst.empty.description" = "没有找到几秒内连续拍摄的照片组。";
+"burst.reading" = "正在查找连拍照片";
+"burst.group.title.format" = "%@ · %d 张";
 "select.all" = "全选";
 "select.none" = "取消全选";
 "selected.photos.format" = "已选择 %lld 张照片";

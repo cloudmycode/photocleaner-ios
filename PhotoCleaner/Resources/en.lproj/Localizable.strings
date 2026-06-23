@@ -12,6 +12,7 @@
 "items.count.format" = "%lld items";
 "videos.count.format" = "%@ videos";
 "category.duplicates" = "Duplicate Photos";
+"category.bursts" = "Burst Photos";
 "category.similar" = "Similar Photos";
 "category.screenshots" = "Screenshots";
 "category.low.quality" = "Low Quality";
@@ -37,6 +38,13 @@
 "similar.group.portrait" = "2 photos (portrait)";
 "similar.group.landscape" = "3 photos (landscape)";
 "similar.group.burst" = "Burst comparison";
+"group.number.format" = "Group %d";
+"burst.title" = "Burst Photos";
+"burst.best.pick" = "Recommended photo kept";
+"burst.empty" = "No Burst Photos";
+"burst.empty.description" = "No photo groups taken continuously within a few seconds were found.";
+"burst.reading" = "Finding burst photos";
+"burst.group.title.format" = "%@ · %d photos";
 "select.all" = "Select all";
 "select.none" = "Deselect all";
 "selected.photos.format" = "%lld photos selected";

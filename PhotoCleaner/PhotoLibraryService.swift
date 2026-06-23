@@ -55,6 +55,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var monthlyReviewedIDs: [String: Set<String>] = [:]
     @Published private(set) var monthlyMarkedIDs: [String: Set<String>] = [:]
     @Published private(set) var duplicateGroups: [SimilarAssetGroup] = []
+    @Published private(set) var burstGroups: [SimilarAssetGroup] = []
     @Published private(set) var similarGroups: [SimilarAssetGroup] = []
     @Published private(set) var duplicateScanProgress: (current: Int, total: Int)?
     @Published private(set) var scanState: ScanState = .idle
@@ -105,6 +106,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             guard let self else { return }
             scanState = .loadingLibrary
             duplicateGroups = []
+            burstGroups = []
             similarGroups = []
 
             let assets = Self.fetchImageAssets()
@@ -137,6 +139,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 maximumAdjacentInterval: fallbackShotInterval,
                 maximumSequenceDuration: fallbackSequenceDuration
             )
+            burstGroups = candidates
+                .map(Self.makeBurstGroup)
+                .sorted {
+                    ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+                }
             scanState = .analyzing(current: 0, total: candidates.count)
 
             var groups: [SimilarAssetGroup] = []
@@ -566,6 +573,26 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
     }
 
+    private static func makeBurstGroup(_ assets: [PHAsset]) -> SimilarAssetGroup {
+        let sorted = assets.sorted(by: assetDateAscending)
+        let keepID = sorted.first(where: \.isFavorite)?.localIdentifier ??
+            sorted.max(by: { qualityScore(forMetadata: $0) < qualityScore(forMetadata: $1) })?
+                .localIdentifier
+        let results = sorted.map {
+            SimilarAsset(
+                id: $0.localIdentifier,
+                asset: $0,
+                qualityScore: qualityScore(forMetadata: $0),
+                isBest: $0.localIdentifier == keepID
+            )
+        }
+        return SimilarAssetGroup(
+            id: results.map(\.id).sorted().joined(separator: "|"),
+            assets: results,
+            creationDate: sorted.first?.creationDate
+        )
+    }
+
     private static func restoreGroup(
         _ cached: CachedSimilarGroup,
         from assets: [PHAsset]
@@ -724,6 +751,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         let resolution = log2(Double(max(asset.pixelWidth * asset.pixelHeight, 1))) / 30
         let favoriteBonus = asset.isFavorite ? 0.08 : 0
         return sharpness * 0.72 + resolution * 0.28 + favoriteBonus
+    }
+
+    nonisolated private static func qualityScore(forMetadata asset: PHAsset) -> Double {
+        let resolution = log2(Double(max(asset.pixelWidth * asset.pixelHeight, 1))) / 30
+        let favoriteBonus = asset.isFavorite ? 0.2 : 0
+        return resolution + favoriteBonus
     }
 
     nonisolated private static func edgeEnergy(for image: CGImage) -> Double {

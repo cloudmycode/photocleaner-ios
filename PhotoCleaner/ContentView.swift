@@ -50,6 +50,9 @@ struct QuickCleanView: View {
             CleanerCategory.duplicates(
                 count: library.duplicateGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
             ),
+            CleanerCategory.bursts(
+                count: library.burstGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
+            ),
             CleanerCategory.similar(
                 count: library.similarGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
             ),
@@ -84,6 +87,8 @@ struct QuickCleanView: View {
                         NavigationLink {
                             if item.kind == .duplicate {
                                 SimilarCleanView(mode: .duplicate)
+                            } else if item.kind == .burst {
+                                SimilarCleanView(mode: .burst)
                             } else if item.kind == .similar {
                                 SimilarCleanView(mode: .similar)
                             } else {
@@ -630,6 +635,7 @@ private struct MonthAssetRow: View {
 
 enum PhotoGroupCleanMode {
     case duplicate
+    case burst
     case similar
 }
 
@@ -643,7 +649,14 @@ struct SimilarCleanView: View {
 
     private var selectedCount: Int { selectedIDs.count }
     private var groups: [SimilarAssetGroup] {
-        mode == .duplicate ? library.duplicateGroups : library.similarGroups
+        switch mode {
+        case .duplicate:
+            return library.duplicateGroups
+        case .burst:
+            return library.burstGroups
+        case .similar:
+            return library.similarGroups
+        }
     }
 
     var body: some View {
@@ -780,6 +793,9 @@ struct SimilarCleanView: View {
                 progress.total
             )
         }
+        if mode == .burst {
+            return String(localized: "burst.reading")
+        }
         if case let .analyzing(current, total) = library.scanState {
             return String.localizedStringWithFormat(
                 String(localized: "similar.analyzing.format"),
@@ -791,7 +807,19 @@ struct SimilarCleanView: View {
     }
 
     private func groupTitle(_ group: SimilarAssetGroup, index: Int) -> String {
-        guard let date = group.creationDate else { return "Group \(index + 1)" }
+        guard let date = group.creationDate else {
+            return String.localizedStringWithFormat(
+                String(localized: "group.number.format"),
+                index + 1
+            )
+        }
+        if mode == .burst {
+            return String.localizedStringWithFormat(
+                String(localized: "burst.group.title.format"),
+                date.formatted(date: .abbreviated, time: .shortened),
+                group.assets.count
+            )
+        }
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
@@ -809,19 +837,47 @@ struct SimilarCleanView: View {
     }
 
     private var titleKey: LocalizedStringKey {
-        mode == .duplicate ? "duplicate.title" : "similar.title"
+        switch mode {
+        case .duplicate:
+            return "duplicate.title"
+        case .burst:
+            return "burst.title"
+        case .similar:
+            return "similar.title"
+        }
     }
 
     private var keptKey: LocalizedStringKey {
-        mode == .duplicate ? "duplicate.original.kept" : "similar.best.pick"
+        switch mode {
+        case .duplicate:
+            return "duplicate.original.kept"
+        case .burst:
+            return "burst.best.pick"
+        case .similar:
+            return "similar.best.pick"
+        }
     }
 
     private var emptyTitleKey: LocalizedStringKey {
-        mode == .duplicate ? "duplicate.empty" : "similar.empty"
+        switch mode {
+        case .duplicate:
+            return "duplicate.empty"
+        case .burst:
+            return "burst.empty"
+        case .similar:
+            return "similar.empty"
+        }
     }
 
     private var emptyDescriptionKey: LocalizedStringKey {
-        mode == .duplicate ? "duplicate.empty.description" : "similar.empty.description"
+        switch mode {
+        case .duplicate:
+            return "duplicate.empty.description"
+        case .burst:
+            return "burst.empty.description"
+        case .similar:
+            return "similar.empty.description"
+        }
     }
 
     private func toggle(_ photo: SimilarAsset) {
@@ -1813,7 +1869,7 @@ private struct InfoPair: View {
 
 struct CleanerCategory: Identifiable {
     enum Kind: Hashable {
-        case duplicate, similar, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
+        case duplicate, burst, similar, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
     }
 
     var id: Kind { kind }
@@ -1854,6 +1910,17 @@ struct CleanerCategory: Identifiable {
             color: .orange,
             icon: "rectangle.on.rectangle",
             kind: .duplicate
+        )
+    }
+
+    static func bursts(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.bursts"),
+            count: count,
+            size: "",
+            color: .cleanerGreen,
+            icon: "camera.on.rectangle",
+            kind: .burst
         )
     }
 
