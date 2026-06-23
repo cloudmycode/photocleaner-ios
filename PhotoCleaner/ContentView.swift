@@ -293,6 +293,7 @@ struct MonthlyReviewView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .background(Color.cleanerBackground)
         .confirmationDialog(
             "month.delete.confirm.title",
@@ -695,6 +696,7 @@ struct SimilarCleanView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .sheet(item: $previewPhoto) { photo in
             PhotoPreview(photo: photo, isSelected: selectedIDs.contains(photo.id)) {
                 toggle(photo)
@@ -954,6 +956,7 @@ struct AssetSwipeCleanView: View {
         }
         .navigationTitle(category.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .background(Color.cleanerBackground)
         .alert("operation.failed", isPresented: Binding(
             get: { operationError != nil },
