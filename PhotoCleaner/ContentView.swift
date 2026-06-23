@@ -591,7 +591,8 @@ struct SimilarCleanView: View {
             PhotoPreview(photo: photo, isSelected: selectedIDs.contains(photo.id)) {
                 toggle(photo)
             }
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.fraction(0.9), .large])
+            .presentationDragIndicator(.visible)
         }
         .alert("delete.failed", isPresented: Binding(
             get: { deletionError != nil },
