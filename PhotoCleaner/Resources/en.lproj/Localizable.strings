@@ -114,3 +114,13 @@
 "duplicate.empty" = "No Duplicate Photos";
 "duplicate.empty.description" = "No matching photo copies were found.";
 "duplicate.analyzing.format" = "Checking duplicate photos %d/%d";
+"mark.for.deletion" = "Mark for deletion";
+"month.marked.format" = "%d photos marked";
+"month.marked.description" = "Review first, then delete together";
+"month.delete.marked" = "Delete marked photos";
+"month.delete.confirm.title" = "Delete Marked Photos?";
+"month.delete.confirm.message" = "%d photos will be moved to Recently Deleted.";
+"month.delete.confirm.action" = "Delete Photos";
+"month.review.complete" = "Month Reviewed";
+"month.review.complete.description" = "All photos in this month have been reviewed.";
+"cancel" = "Cancel";

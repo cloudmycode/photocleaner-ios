@@ -114,3 +114,13 @@
 "duplicate.empty" = "未发现重复照片";
 "duplicate.empty.description" = "没有找到画面内容一致的照片副本。";
 "duplicate.analyzing.format" = "正在检查重复照片 %d/%d";
+"mark.for.deletion" = "标记删除";
+"month.marked.format" = "已标记 %d 张照片";
+"month.marked.description" = "完成检查后统一删除";
+"month.delete.marked" = "删除已标记照片";
+"month.delete.confirm.title" = "删除已标记的照片？";
+"month.delete.confirm.message" = "%d 张照片将被移至“最近删除”。";
+"month.delete.confirm.action" = "删除照片";
+"month.review.complete" = "本月检查完成";
+"month.review.complete.description" = "这个月的照片已经全部检查完成。";
+"cancel" = "取消";

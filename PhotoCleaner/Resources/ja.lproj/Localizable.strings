@@ -114,3 +114,13 @@
 "duplicate.empty" = "重複写真はありません";
 "duplicate.empty.description" = "同じ内容の写真コピーは見つかりませんでした。";
 "duplicate.analyzing.format" = "重複写真を確認中 %d/%d";
+"mark.for.deletion" = "削除対象にする";
+"month.marked.format" = "%d 枚を削除対象に設定";
+"month.marked.description" = "確認後にまとめて削除します";
+"month.delete.marked" = "選択した写真を削除";
+"month.delete.confirm.title" = "選択した写真を削除しますか？";
+"month.delete.confirm.message" = "%d 枚の写真が「最近削除した項目」に移動します。";
+"month.delete.confirm.action" = "写真を削除";
+"month.review.complete" = "今月の確認完了";
+"month.review.complete.description" = "今月の写真をすべて確認しました。";
+"cancel" = "キャンセル";

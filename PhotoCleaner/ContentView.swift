@@ -179,7 +179,7 @@ struct AlbumsView: View {
                 ForEach(library.monthGroups) { month in
                     CleanerSection(title: month.date.formatted(.dateTime.year())) {
                         NavigationLink {
-                            AssetCollectionView(
+                            MonthlyReviewView(
                                 title: month.date.formatted(.dateTime.year().month(.wide)),
                                 assets: month.assets
                             )
@@ -195,30 +195,243 @@ struct AlbumsView: View {
     }
 }
 
-struct AssetCollectionView: View {
+private struct MonthReviewAction {
+    let id: String
+    let markedForDeletion: Bool
+}
+
+struct MonthlyReviewView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
     let title: String
     let assets: [PHAsset]
 
-    private let columns = Array(
-        repeating: GridItem(.flexible(), spacing: 2),
-        count: 3
-    )
+    @State private var reviewedIDs = Set<String>()
+    @State private var markedIDs = Set<String>()
+    @State private var removedIDs = Set<String>()
+    @State private var history: [MonthReviewAction] = []
+    @State private var offset: CGSize = .zero
+    @State private var showDeleteConfirmation = false
+    @State private var deletionError: String?
+
+    private var availableAssets: [PHAsset] {
+        assets.filter { !removedIDs.contains($0.localIdentifier) }
+    }
+
+    private var currentAsset: PHAsset? {
+        availableAssets.first { !reviewedIDs.contains($0.localIdentifier) }
+    }
+
+    private var reviewedCount: Int {
+        reviewedIDs.intersection(Set(availableAssets.map(\.localIdentifier))).count
+    }
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(assets, id: \.localIdentifier) { asset in
-                    PhotoThumbnailView(
-                        asset: asset,
-                        targetSize: CGSize(width: 220, height: 220)
-                    )
-                    .aspectRatio(1, contentMode: .fill)
+        Group {
+            if let asset = currentAsset {
+                ScrollView {
+                    VStack(spacing: 18) {
+                        reviewToolbar
+                        reviewCard(asset)
+                        HStack(spacing: 36) {
+                            ActionCircle(systemName: "trash", tint: .red) {
+                                review(asset, markForDeletion: true)
+                            }
+                            .accessibilityLabel(Text("mark.for.deletion"))
+
+                            ActionCircle(systemName: "checkmark", tint: .cleanerGreen) {
+                                review(asset, markForDeletion: false)
+                            }
+                            .accessibilityLabel(Text("keep"))
+                        }
+                        Color.clear.frame(height: 12)
+                    }
                 }
+            } else {
+                ContentUnavailableView(
+                    "month.review.complete",
+                    systemImage: "checkmark.circle",
+                    description: Text("month.review.complete.description")
+                )
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !markedIDs.isEmpty {
+                markedPhotosBar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
             }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .background(Color.cleanerBackground)
+        .confirmationDialog(
+            "month.delete.confirm.title",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("month.delete.confirm.action", role: .destructive) {
+                deleteMarkedPhotos()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(
+                String.localizedStringWithFormat(
+                    String(localized: "month.delete.confirm.message"),
+                    markedIDs.count
+                )
+            )
+        }
+        .alert("delete.failed", isPresented: Binding(
+            get: { deletionError != nil },
+            set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deletionError ?? "")
+        }
+    }
+
+    private var reviewToolbar: some View {
+        HStack {
+            Text("\(min(reviewedCount + 1, availableAssets.count))/\(availableAssets.count)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("undo") {
+                undo()
+            }
+            .font(.subheadline.weight(.semibold))
+            .disabled(history.isEmpty)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+    }
+
+    private func reviewCard(_ asset: PHAsset) -> some View {
+        PhotoThumbnailView(
+            asset: asset,
+            targetSize: CGSize(width: 880, height: 1100)
+        )
+        .id(asset.localIdentifier)
+        .frame(maxWidth: 440)
+        .aspectRatio(0.84, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay {
+            if offset.width < -30 {
+                swipeBadge(
+                    title: String(localized: "mark.for.deletion"),
+                    systemName: "trash",
+                    color: .red,
+                    alignment: .topTrailing
+                )
+            } else if offset.width > 30 {
+                swipeBadge(
+                    title: String(localized: "keep"),
+                    systemName: "checkmark",
+                    color: .cleanerGreen,
+                    alignment: .topLeading
+                )
+            }
+        }
+        .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+        .offset(offset)
+        .rotationEffect(.degrees(Double(offset.width / 18)))
+        .gesture(
+            DragGesture()
+                .onChanged { offset = $0.translation }
+                .onEnded { value in
+                    if value.translation.width < -110 {
+                        review(asset, markForDeletion: true)
+                    } else if value.translation.width > 110 {
+                        review(asset, markForDeletion: false)
+                    }
+                    offset = .zero
+                }
+        )
+        .padding(.horizontal, 22)
+    }
+
+    private func swipeBadge(
+        title: String,
+        systemName: String,
+        color: Color,
+        alignment: Alignment
+    ) -> some View {
+        Label(title, systemImage: systemName)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(color, in: Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .padding(16)
+    }
+
+    private var markedPhotosBar: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "month.marked.format"),
+                        markedIDs.count
+                    )
+                )
+                .font(.subheadline.bold())
+                Text("month.marked.description")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.red, in: Circle())
+            }
+            .accessibilityLabel(Text("month.delete.marked"))
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
+
+    private func review(_ asset: PHAsset, markForDeletion: Bool) {
+        let id = asset.localIdentifier
+        history.append(MonthReviewAction(id: id, markedForDeletion: markForDeletion))
+        reviewedIDs.insert(id)
+        if markForDeletion {
+            markedIDs.insert(id)
+        }
+        offset = .zero
+    }
+
+    private func undo() {
+        guard let action = history.popLast() else { return }
+        reviewedIDs.remove(action.id)
+        if action.markedForDeletion {
+            markedIDs.remove(action.id)
+        }
+    }
+
+    private func deleteMarkedPhotos() {
+        let identifiers = markedIDs
+        Task {
+            do {
+                try await library.deleteAssets(with: identifiers)
+                removedIDs.formUnion(identifiers)
+                reviewedIDs.subtract(identifiers)
+                markedIDs.subtract(identifiers)
+                history.removeAll { identifiers.contains($0.id) }
+            } catch {
+                deletionError = error.localizedDescription
+            }
+        }
     }
 }
 
