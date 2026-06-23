@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Compress Detail - Preview Mode</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f6f8fa;
+            color: #1f2328;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 414px;
+            background-color: #f6f8fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* 顶部导航栏 */
+        .nav-bar {
+            height: 56px;
+            background-color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            border-bottom: 1px solid #f0f2f5;
+            z-index: 10;
+        }
+
+        .back-btn {
+            font-size: 16px;
+            color: #0a84ff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .nav-title {
+            font-size: 17px;
+            font-weight: 600;
+        }
+
+        .select-all-btn {
+            font-size: 14px;
+            color: #57606a;
+            cursor: pointer;
+        }
+
+        /* 主体滚动区 */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-bottom: 230px; /* 留足固底控制面板的空间 */
+        }
+
+        /* 视频预览列表容器 */
+        .video-preview-list {
+            background-color: #ffffff;
+        }
+
+        /* 升级后的高保真视频单项（左右布局） */
+        .video-preview-item {
+            display: flex;
+            align-items: center;
+            padding: 14px 16px;
+            gap: 14px;
+            border-bottom: 1px solid #f0f2f5;
+            cursor: pointer;
+        }
+
+        /* 1. 复选框定位 */
+        .checkbox-container {
+            position: relative;
+            width: 22px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .checkbox-container input {
+            position: absolute;
+            opacity: 0;
+            width: 0; height: 0;
+        }
+
+        .checkmark {
+            position: absolute;
+            inset: 0;
+            background-color: #ffffff;
+            border: 2px solid #e1e4e8;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .checkbox-container input:checked ~ .checkmark {
+            background-color: #0a84ff;
+            border-color: #0a84ff;
+        }
+
+        .checkmark::after {
+            content: "";
+            position: absolute;
+            display: none;
+            left: 6px; top: 2px;
+            width: 5px; height: 10px;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .checkbox-container input:checked ~ .checkmark::after {
+            display: block;
+        }
+
+        /* 2. 视频缩略图预览卡片 (核心改动) */
+        .video-thumbnail-box {
+            width: 80px;
+            height: 60px;
+            border-radius: 6px;
+            position: relative;
+            background: linear-gradient(135deg, #e1e4e8 0%, #d0d7de 100%);
+            overflow: hidden;
+            flex-shrink: 0;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 模拟缩略图内部的渐变色块或极简几何线条，契合极简风 */
+        .thumbnail-mock-scene {
+            width: 70%;
+            height: 50%;
+            border: 1.5px solid rgba(255, 255, 255, 0.6);
+            border-radius: 4px;
+            opacity: 0.7;
+        }
+
+        /* 原生时长时间戳浮层 */
+        .timestamp-badge {
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            background-color: rgba(0, 0, 0, 0.65);
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 3. 视频信息文本排阶 */
+        .video-details {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0; /* 允许文本截断 */
+        }
+
+        .video-filename {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1f2328;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .video-tags {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .tag-pill {
+            background-color: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            color: #57606a;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
+        /* 右侧原体积标签 */
+        .video-right-meta {
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .video-origin-size {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1f2328;
+            letter-spacing: -0.2px;
+        }
+
+        /* 固底控制面板（压缩策略） */
+        .bottom-panel {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background-color: #ffffff;
+            border-top: 1px solid #e1e4e8;
+            padding: 16px 20px calc(16px + env(safe-area-inset-bottom)) 20px;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.03);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .preview-dash {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #f6f8fa;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #e1e4e8;
+        }
+
+        .dash-title { font-size: 13px; color: #57606a; font-weight: 500; }
+        .dash-value { font-size: 16px; font-weight: 700; color: #2da44e; }
+
+        .setting-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .setting-label-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 600;
+            color: #57606a;
+        }
+
+        .range-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: #e1e4e8;
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .range-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 1px solid #e1e4e8;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+        }
+
+        .action-button {
+            background-color: #0a84ff;
+            color: #ffffff;
+            text-align: center;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+
+        .action-button:active { opacity: 0.85; }
+
+        /* 全屏硬编码导出动画层 */
+        .compress-modal {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255,255,255,0.96);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid #e1e4e8;
+            border-top-color: #0a84ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .progress-text { font-size: 18px; font-weight: 700; color: #1f2328; margin-bottom: 6px; }
+        .progress-sub { font-size: 13px; color: #57606a; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <nav class="nav-bar">
+            <div class="back-btn" onclick="history.back() || alert('返回上一页')">⟨ 超大体积</div>
+            <div class="nav-title">选择视频</div>
+            <div class="select-all-btn" onclick="alert('触发多选联动')">全选</div>
+        </nav>
+
+        <main class="main-content">
+            <div class="video-preview-list">
+                
+                <div class="video-preview-item" onclick="toggleRow(this)">
+                    <label class="checkbox-container" onclick="event.stopPropagation()">
+                        <input type="checkbox" checked id="check-1" onchange="updateTotal()">
+                        <span class="checkmark"></span>
+                    </label>
+                    
+                    <div class="video-thumbnail-box" style="background: linear-gradient(135deg, #eae1e8, #bfb2c4);">
+                        <div class="thumbnail-mock-scene"></div>
+                        <span class="timestamp-badge">08:24</span>
+                    </div>
+
+                    <div class="video-details">
+                        <span class="video-filename">RPReplay_Final_0604.mp4</span>
+                        <div class="video-tags">
+                            <span class="tag-pill">4K UHD</span>
+                            <span class="tag-pill">60 FPS</span>
+                        </div>
+                    </div>
+
+                    <div class="video-right-meta">
+                        <span class="video-origin-size">1.2 GB</span>
+                    </div>
+                </div>
+
+                <div class="video-preview-item" onclick="toggleRow(this)">
+                    <label class="checkbox-container" onclick="event.stopPropagation()">
+                        <input type="checkbox" checked id="check-2" onchange="updateTotal()">
+                        <span class="checkmark"></span>
+                    </label>
+                    
+                    <div class="video-thumbnail-box" style="background: linear-gradient(135deg, #e1edf0, #b2c9cf);">
+                        <div class="thumbnail-mock-scene" style="width: 40%; height: 60%;"></div>
+                        <span class="timestamp-badge">03:15</span>
+                    </div>
+
+                    <div class="video-details">
+                        <span class="video-filename">IMG_9821_Travel_Vlog.MOV</span>
+                        <div class="video-tags">
+                            <span class="tag-pill">1080P</span>
+                            <span class="tag-pill">H.264</span>
+                        </div>
+                    </div>
+
+                    <div class="video-right-meta">
+                        <span class="video-origin-size">680 MB</span>
+                    </div>
+                </div>
+
+                <div class="video-preview-item" onclick="toggleRow(this)">
+                    <label class="checkbox-container" onclick="event.stopPropagation()">
+                        <input type="checkbox" id="check-3" onchange="updateTotal()">
+                        <span class="checkmark"></span>
+                    </label>
+                    
+                    <div class="video-thumbnail-box" style="background: linear-gradient(135deg, #f2eae1, #d6c5b2);">
+                        <div class="thumbnail-mock-scene" style="border-radius: 50%; width: 40%; height: 50%;"></div>
+                        <span class="timestamp-badge">15:40</span>
+                    </div>
+
+                    <div class="video-details">
+                        <span class="video-filename">Screen_Recording_Game.mp4</span>
+                        <div class="video-tags">
+                            <span class="tag-pill">1080P</span>
+                            <span class="tag-pill">High Rate</span>
+                        </div>
+                    </div>
+
+                    <div class="video-right-meta">
+                        <span class="video-origin-size">850 MB</span>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+
+        <section class="bottom-panel">
+            <div class="setting-row">
+                <div class="setting-label-row">
+                    <span>压缩目标画质 (调控底层码率/分辨率)</span>
+                    <span id="quality-desc" style="color: #0a84ff;">智能平衡 (推荐 1080P)</span>
+                </div>
+                <input type="range" class="range-slider" min="1" max="3" value="2" id="qualityRange" oninput="changeSlider(this.value)">
+            </div>
+
+            <div class="preview-dash">
+                <span class="dash-title">预计可释放空间</span>
+                <span class="dash-value" id="save-value">~ 1.35 GB</span>
+            </div>
+
+            <div class="action-button" onclick="startEncoding()" id="actionBtn">
+                开始压缩选中的 2 个视频
+            </div>
+        </section>
+
+        <div class="compress-modal" id="compressModal">
+            <div class="spinner"></div>
+            <div class="progress-text" id="proc-text">正在并行转码 0%</div>
+            <div class="progress-sub">
+                正在通过芯片级底层硬件加速重新对像素进行 H.265 高效编码...
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // 点击整行切换勾选状态
+        function toggleRow(rowElement) {
+            const checkbox = rowElement.querySelector('input[type="checkbox"]');
+            checkbox.checked = !checkbox.checked;
+            updateTotal();
+        }
+
+        // 联动计算选中的视频数量
+        function updateTotal() {
+            const checkedCount = document.querySelectorAll('.video-preview-item input[type="checkbox"]:checked').length;
+            document.getElementById('actionBtn').innerText = `开始压缩选中的 ${checkedCount} 个视频`;
+        }
+
+        // 滑块调控硬件下采样率
+        function changeSlider(val) {
+            const desc = document.getElementById('quality-desc');
+            const save = document.getElementById('save-value');
+            if(val == 1) {
+                desc.innerText = "极限压缩 (轻度糊, 720P)";
+                save.innerText = "~ 1.58 GB";
+            } else if (val == 2) {
+                desc.innerText = "智能平衡 (肉眼无损, 1080P)";
+                save.innerText = "~ 1.35 GB";
+            } else {
+                desc.innerText = "高清晰度 (仅裁剪冗余高比特率)";
+                save.innerText = "~ 620 MB";
+            }
+        }
+
+        // 模拟底层压缩
+        function startEncoding() {
+            const checkedCount = document.querySelectorAll('.video-preview-item input[type="checkbox"]:checked').length;
+            if(checkedCount === 0) {
+                alert('请先勾选需要压缩的视频。');
+                return;
+            }
+            const modal = document.getElementById('compressModal');
+            modal.style.display = 'flex';
+            let percent = 0;
+            const timer = setInterval(() => {
+                percent += 10;
+                if(percent >= 100) {
+                    clearInterval(timer);
+                    modal.style.display = 'none';
+                    alert('🎉 压缩完成！原大体积资产已被替换优化。');
+                } else {
+                    document.getElementById('proc-text').innerText = `正在并行转码 ${percent}%`;
+                }
+            }, 200);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Cleaner - Albums Tab Premium</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #ffffff;
+            color: #1f2328;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* 模拟标准移动端界面的宽度 */
+        .app-container {
+            width: 100%;
+            max-width: 414px;
+            background-color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #f0f2f5;
+            border-right: 1px solid #f0f2f5;
+            position: relative;
+            padding-bottom: 80px; 
+        }
+
+        .app-header {
+            padding: 24px 16px 8px 16px;
+            background-color: #ffffff;
+        }
+
+        .app-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2328;
+            letter-spacing: -0.6px;
+        }
+
+        /* 顶部存储/照片总量统计大盘 */
+        .storage-section {
+            padding: 8px 16px 20px 16px;
+            background-color: #ffffff;
+        }
+
+        .storage-card {
+            background-color: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .storage-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+
+        .storage-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #57606a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .storage-value {
+            font-size: 30px;
+            font-weight: 700;
+            color: #0969da;
+            letter-spacing: -0.5px;
+        }
+
+        .storage-description {
+            font-size: 12px;
+            color: #57606a;
+        }
+
+        /* 分组通栏标签 / 年份 Header */
+        .section-group-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #24292f;
+            padding: 12px 16px;
+            background-color: #f6f8fa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-top: 1px solid #e1e4e8;
+            border-bottom: 1px solid #e1e4e8;
+        }
+
+        .menu-list {
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+        }
+
+        /* 通栏贯穿布局 */
+        .menu-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 16px;
+            border-bottom: 1px solid #f0f2f5;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+
+        .menu-item:hover, .menu-item:active {
+            background-color: #f8f9fa;
+        }
+
+        /* 左侧时间轴对齐占位圆点（8px 视觉更稳重） */
+        .menu-item::before {
+            content: '';
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #cbd5e1;
+            transition: background-color 0.2s ease;
+        }
+
+        .text-block {
+            display: flex;
+            flex-direction: column;
+            padding-left: 18px; 
+            flex: 1;
+        }
+
+        .item-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1f2328;
+        }
+
+        .item-count-sub {
+            font-size: 12px;
+            color: #57606a;
+            margin-top: 3px;
+        }
+
+        /* 极致克制的微型进度条 */
+        .progress-container {
+            width: 120px;
+            height: 3px;
+            background-color: #eaeef2;
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #0969da;
+            border-radius: 2px;
+        }
+
+        /* 右侧垂直对齐的文本资产块 */
+        .action-block {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            justify-content: center;
+            min-height: 40px;
+        }
+
+        .size-wrapper {
+            display: flex;
+            align-items: center;
+        }
+
+        .item-size {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1f2328;
+            text-align: right;
+        }
+
+        /* 标准右箭头 */
+        .arrow-right {
+            width: 6px;
+            height: 6px;
+            border-top: 2px solid #8c959f;
+            border-right: 2px solid #8c959f;
+            transform: rotate(45deg);
+            margin-left: 12px;
+            opacity: 0.8;
+        }
+
+        /* ==================== 已整理完成月份状态（Organized） ==================== */
+        .menu-item.status-organized::before {
+            background-color: #1a7f37; /* 已完成时圆点变绿 */
+        }
+
+        .menu-item.status-organized .item-title {
+            color: #57606a; /* 标题变浅灰色 */
+        }
+
+        /* 归档完后自动隐藏进度条 */
+        .menu-item.status-organized .progress-container {
+            display: none;
+        }
+
+        /* 大小数字下方的 Organized 标签容器 */
+        .badge-organized-container {
+            display: none;
+            align-items: center;
+            margin-top: 4px;
+        }
+
+        .menu-item.status-organized .badge-organized-container {
+            display: flex;
+        }
+
+        .badge-text {
+            font-size: 11px;
+            font-weight: 600;
+            color: #1a7f37;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        /* 纯 CSS 极简小绿勾 */
+        .checkmark-icon {
+            width: 8px;
+            height: 4px;
+            border-left: 2px solid #1a7f37;
+            border-bottom: 2px solid #1a7f37;
+            transform: rotate(-45deg);
+            margin-right: 6px;
+            margin-bottom: 2px;
+        }
+
+        /* 底部安全感宣告 & 脚注 */
+        .app-footer {
+            text-align: center;
+            font-size: 12px;
+            color: #8c959f;
+            padding: 36px 16px 40px 16px;
+            background-color: #f8f9fa;
+            line-height: 1.6;
+            border-top: 1px solid #f0f2f5;
+        }
+
+        /* 底部工具栏 */
+        .bottom-tabbar {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            max-width: 414px;
+            height: 64px;
+            background-color: #ffffff;
+            border-top: 1px solid #e1e4e8;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 999;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            height: 100%;
+            cursor: pointer;
+            text-decoration: none;
+            color: #57606a;
+        }
+
+        .tab-icon {
+            width: 22px;
+            height: 22px;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tab-label {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .tab-item.active {
+            color: #0969da;
+        }
+
+        /* 矢量图标样式 */
+        .icon-clean { border: 2px solid currentColor; border-radius: 4px; position: relative; width: 18px; height: 18px; }
+        .icon-clean::after { content: ''; position: absolute; width: 6px; height: 2px; background: currentColor; top: 3px; left: 4px; }
+        
+        .icon-albums { border: 2px solid currentColor; border-radius: 2px; width: 18px; height: 16px; position: relative; }
+        .icon-albums::after { content: ''; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: currentColor; top: 3px; left: 3px; }
+
+        .icon-junk { width: 16px; height: 18px; border: 2px solid currentColor; border-top: none; border-bottom-left-radius: 2px; border-bottom-right-radius: 2px; position: relative; }
+        .icon-junk::before { content: ''; position: absolute; width: 20px; height: 2px; background: currentColor; top: -2px; left: -4px; }
+
+        .icon-settings { width: 16px; height: 16px; border: 2px solid currentColor; border-radius: 50%; position: relative; }
+        .icon-settings::after { content: ''; position: absolute; width: 6px; height: 6px; border: 2px solid currentColor; border-radius: 50%; top: 3px; left: 3px; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <header class="app-header">
+            <h1 class="app-title">Albums</h1>
+        </header>
+
+        <section class="storage-section">
+            <div class="storage-card">
+                <div class="storage-meta">
+                    <span class="storage-label">Total Photos</span>
+                    <span class="storage-value">4,118 items</span>
+                </div>
+                <div class="storage-description">Organize and clear your photos month by month</div>
+            </div>
+        </section>
+
+        <div class="section-group-label">2026</div>
+        <nav class="menu-list">
+            
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">June 2026</span>
+                    <span class="item-count-sub">185 items · <span style="color: #cf222e; font-weight: 500;">42 Duplicates</span></span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 5%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">512.0 MB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item status-organized">
+                <div class="text-block">
+                    <span class="item-title">May 2026</span>
+                    <span class="item-count-sub">142 items</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 100%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">480.5 MB</span>
+                    </div>
+                    <div class="badge-organized-container">
+                        <div class="checkmark-icon"></div>
+                        <span class="badge-text">Organized</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">April 2026</span>
+                    <span class="item-count-sub">310 items · <span style="color: #cf222e; font-weight: 500;">84 Blurry</span></span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 35%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">1.12 GB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">March 2026</span>
+                    <span class="item-count-sub">285 items · Similar Photos</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 0%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">942.0 MB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">February 2026</span>
+                    <span class="item-count-sub">198 items · <span style="color: #6e7781;">Screenshots</span></span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 85%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">612.4 MB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">January 2026</span>
+                    <span class="item-count-sub">424 items · <span style="color: #cf222e; font-weight: 500;">110 Junk Items</span></span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 50%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">1.55 GB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="section-group-label">2025</div>
+        <nav class="menu-list">
+            
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">December 2025</span>
+                    <span class="item-count-sub">512 items · Large Videos</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 20%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">2.40 GB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item status-organized">
+                <div class="text-block">
+                    <span class="item-title">November 2025</span>
+                    <span class="item-count-sub">210 items</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 100%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">720.8 MB</span>
+                    </div>
+                    <div class="badge-organized-container">
+                        <div class="checkmark-icon"></div>
+                        <span class="badge-text">Organized</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item status-organized">
+                <div class="text-block">
+                    <span class="item-title">October 2025</span>
+                    <span class="item-count-sub">340 items</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 100%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">1.05 GB</span>
+                    </div>
+                    <div class="badge-organized-container">
+                        <div class="checkmark-icon"></div>
+                        <span class="badge-text">Organized</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">September 2025</span>
+                    <span class="item-count-sub">415 items · Duplicates</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 0%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">1.88 GB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item">
+                <div class="text-block">
+                    <span class="item-title">August 2025</span>
+                    <span class="item-count-sub">290 items · Blurry Photos</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 60%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">915.2 MB</span>
+                        <span class="arrow-right"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="menu-item status-organized">
+                <div class="text-block">
+                    <span class="item-title">July 2025</span>
+                    <span class="item-count-sub">198 items</span>
+                    <div class="progress-container"><div class="progress-bar" style="width: 100%;"></div></div>
+                </div>
+                <div class="action-block">
+                    <div class="size-wrapper">
+                        <span class="item-size">512.6 MB</span>
+                    </div>
+                    <div class="badge-organized-container">
+                        <div class="checkmark-icon"></div>
+                        <span class="badge-text">Organized</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <footer class="app-footer">
+            <p>End of Photo Timeline</p>
+            <p style="font-size: 10px; margin-top: 6px; color: #afb8c1; letter-spacing: 0.2px; font-weight: 500;">
+                🔒 ON-DEVICE PROCESSING · YOUR PHOTOS NEVER LEAVE YOUR PHONE
+            </p>
+        </footer>
+
+        <nav class="bottom-tabbar">
+            <a href="cleaner_ui.html" class="tab-item">
+                <div class="tab-icon"><div class="icon-clean"></div></div>
+                <span class="tab-label">Quick Clean</span>
+            </a>
+            <div class="tab-item active">
+                <div class="tab-icon"><div class="icon-albums"></div></div>
+                <span class="tab-label">Albums</span>
+            </div>
+            <div class="tab-item" onclick="alert('Video Files feature template')">
+                <div class="tab-icon"><div class="icon-junk"></div></div>
+                <span class="tab-label">Video Compass</span>
+            </div>
+            <div class="tab-item" onclick="alert('Settings feature template')">
+                <div class="tab-icon"><div class="icon-settings"></div></div>
+                <span class="tab-label">Settings</span>
+            </div>
+        </nav>
+
+    </div>
+
+</body>
+</html>

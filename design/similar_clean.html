@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Cleaner - 相似照片</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #ffffff;
+            color: #1f2328;
+            display: flex;
+            justify-content: center;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 414px;
+            background-color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            padding-bottom: 90px;
+            border-left: 1px solid #f0f2f5;
+            border-right: 1px solid #f0f2f5;
+        }
+
+        /* 顶部导航控制栏 */
+        .nav-header {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .back-btn {
+            background: none;
+            border: none;
+            color: #1f2328;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            padding: 8px 8px 8px 0;
+        }
+
+        .arrow-left {
+            width: 12px;
+            height: 12px;
+            border-bottom: 2px solid currentColor;
+            border-left: 2px solid currentColor;
+            transform: rotate(45deg);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .pill-btn {
+            background-color: #ffffff;
+            border: 1px solid #d0d7de;
+            color: #24292f;
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* 大标题与副标题区 */
+        .title-section {
+            padding: 8px 16px 16px 16px;
+        }
+
+        .main-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1f2328;
+            letter-spacing: -0.5px;
+        }
+
+        .sub-title {
+            font-size: 13px;
+            color: #57606a;
+            margin-top: 5px;
+        }
+
+        /* 照片分组样式 */
+        .photo-group {
+            margin-bottom: 24px;
+        }
+
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            margin-bottom: 8px;
+        }
+
+        .group-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #1f2328;
+        }
+
+        .group-select-all {
+            font-size: 14px;
+            color: #57606a;
+            cursor: pointer;
+        }
+
+        /* 网格排版（适合2-3张照片） */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            padding: 0 16px;
+        }
+
+        /* 横向滑动排版（适合4-7张多图连拍） */
+        .photo-carousel {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 0 16px 4px 16px;
+            scrollbar-width: none; 
+        }
+        .photo-carousel::-webkit-scrollbar { display: none; }
+
+        /* 照片卡片基础比例（默认竖屏 3:4） */
+        .photo-card {
+            position: relative;
+            aspect-ratio: 3 / 4;
+            background-color: #f6f8fa;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .photo-carousel .photo-card {
+            flex: 0 0 135px;
+        }
+
+        /* 自适应横屏方案 */
+        .landscape-group .photo-card {
+            aspect-ratio: 4 / 3; 
+        }
+        .landscape-group.photo-group .photo-carousel .photo-card {
+            flex: 0 0 165px;
+        }
+
+        /* 模拟图片渲染 */
+        .photo-img-placeholder {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(180deg, #eaeef2 0%, #d0d7de 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #57606a;
+            font-size: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        /* 右下角复选框触控区 */
+        .checkbox-container {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 44px;
+            height: 44px;
+            z-index: 15;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .checkbox-overlay {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ffffff;
+            border-radius: 6px;
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+
+        .photo-card.selected .checkbox-overlay {
+            background-color: #0969da;
+            border-color: #0969da;
+        }
+
+        .photo-card.selected .checkbox-overlay::after {
+            content: '';
+            position: absolute;
+            left: 18px;
+            top: 16px;
+            width: 4px;
+            height: 8px;
+            border-right: 2px solid #ffffff;
+            border-bottom: 2px solid #ffffff;
+            transform: rotate(45deg);
+        }
+
+        /* 纯星标推荐 Badge */
+        .best-pick-star {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background-color: #ff375f; 
+            color: #ffffff;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            z-index: 12;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* 底部固定结算栏 */
+        .action-bar-bottom {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            max-width: 414px;
+            background-color: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid #e1e4e8;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 200;
+        }
+
+        .action-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .selected-count {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1f2328;
+        }
+
+        .selected-size {
+            font-size: 12px;
+            color: #57606a;
+            margin-top: 2px;
+        }
+
+        .delete-btn {
+            background-color: #cf222e;
+            color: #ffffff;
+            border: none;
+            padding: 12px 28px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 22px;
+            cursor: pointer;
+        }
+
+        /* ==================== 🎬 全屏大图查看浮层 ==================== */
+        .preview-overlay {
+            position: fixed;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 414px;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.95);
+            z-index: 1000;
+            display: none; /* 默认隐藏 */
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 24px 20px 40px 20px;
+            color: #ffffff;
+            cursor: pointer; /* 提示用户点任意位置都可以退出 */
+        }
+
+        /* 预览项控制头部 */
+        .preview-header {
+            display: flex;
+            justify-content: flex-end; /* 移除了左侧多余的返回按钮，保持更纯净的排版 */
+            align-items: center;
+            z-index: 1010;
+            height: 40px;
+        }
+
+        .preview-select-zone {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+        }
+
+        .preview-checkbox {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #ffffff;
+            border-radius: 4px;
+            position: relative;
+        }
+        .preview-select-zone.active .preview-checkbox {
+            background-color: #0969da;
+            border-color: #0969da;
+        }
+        .preview-select-zone.active .preview-checkbox::after {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 1px;
+            width: 4px;
+            height: 8px;
+            border-right: 2px solid #ffffff;
+            border-bottom: 2px solid #ffffff;
+            transform: rotate(45deg);
+        }
+
+        /* 大图主体显示区 */
+        .preview-image-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px 0;
+        }
+
+        .preview-img-mock {
+            width: 100%;
+            max-height: 62vh;
+            background: linear-gradient(135deg, #2f363d 0%, #1f2328 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            color: #8c959f;
+            border: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+            padding: 20px;
+        }
+        .preview-img-mock.landscape { aspect-ratio: 4 / 3; }
+        .preview-img-mock.portrait { aspect-ratio: 3 / 4; }
+
+        /* 左下角参数面板 */
+        .preview-details {
+            background: rgba(20, 20, 20, 0.75);
+            padding: 16px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: default; /* 在参数面板内点击不误触发退出 */
+        }
+
+        .preview-title-text {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #ffffff;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 12px;
+            color: #c9d1d9;
+        }
+
+        .meta-item span {
+            color: #8b949e;
+            margin-right: 4px;
+        }
+
+        /* 顶部中央增加提示，引导初次使用的用户，2秒后自动淡出更高级，这里用简易文本代替 */
+        .preview-tip {
+            position: absolute;
+            top: 32px;
+            left: 20px;
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <header class="nav-header">
+            <button class="back-btn" onclick="history.back()">
+                <span class="arrow-left"></span>
+            </button>
+            <div class="header-actions">
+                <button class="pill-btn">☰ 筛选</button>
+                <button class="pill-btn" onclick="toggleSelectAllGlobal()">✓ 全选</button>
+            </div>
+        </header>
+
+        <section class="title-section">
+            <h1 class="main-title">相似照片</h1>
+            <p class="sub-title">1951 相似  5.3 GB</p>
+        </section>
+
+        <main class="groups-list">
+
+            <div class="photo-group" id="group-1">
+                <div class="group-header">
+                    <span class="group-title">2 张照片 (竖屏连拍)</span>
+                    <span class="group-select-all" onclick="toggleGroup('group-1')">全选</span>
+                </div>
+                <div class="photo-grid">
+                    <div class="photo-card" id="pic-1" data-name="宝宝午餐 (最优推荐)" data-type="portrait" data-time="2026-06-01 12:30:15" data-location="北京市朝阳区 · 餐厅" data-model="iPhone 15 Pro" data-pixel="4800 万像素 (8064 × 6048)" data-iso="ISO 50 · 24mm · f/1.78" data-size="4.2 MB" onclick="openPreview('pic-1')">
+                        <div class="best-pick-star">★</div>
+                        <div class="photo-img-placeholder"><span>竖屏 1 (最优)</span></div>
+                        <div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-1')"><div class="checkbox-overlay"></div></div>
+                    </div>
+                    <div class="photo-card selected" id="pic-2" data-name="宝宝午餐 (连拍闭眼)" data-type="portrait" data-time="2026-06-01 12:30:16" data-location="北京市朝阳区 · 餐厅" data-model="iPhone 15 Pro" data-pixel="1200 万像素 (4032 × 3024)" data-iso="ISO 64 · 24mm · f/1.78" data-size="3.8 MB" onclick="openPreview('pic-2')">
+                        <div class="photo-img-placeholder"><span>竖屏 2</span></div>
+                        <div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-2')"><div class="checkbox-overlay"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="photo-group landscape-group" id="group-2">
+                <div class="group-header">
+                    <span class="group-title">3 张照片 (横屏风景)</span>
+                    <span class="group-select-all" onclick="toggleGroup('group-2')">全选</span>
+                </div>
+                <div class="photo-grid" style="grid-template-columns: repeat(3, 1fr);">
+                    <div class="photo-card" id="pic-3" data-name="海边日落 (大片构图)" data-type="landscape" data-time="2026-05-20 19:05:22" data-location="三亚市 · 后海角" data-model="Xiaomi 14 Ultra" data-pixel="5000 万像素 (8192 × 6144)" data-iso="ISO 100 · 23mm · f/1.63" data-size="6.5 MB" onclick="openPreview('pic-3')">
+                        <div class="best-pick-star">★</div>
+                        <div class="photo-img-placeholder"><span>横屏 1</span></div>
+                        <div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-3')"><div class="checkbox-overlay"></div></div>
+                    </div>
+                    <div class="photo-card selected" id="pic-4" data-name="海边日落 (过曝瑕疵)" data-type="landscape" data-time="2026-05-20 19:05:23" data-location="三亚市 · 后海角" data-model="Xiaomi 14 Ultra" data-pixel="5000 万像素 (8192 × 6144)" data-iso="ISO 120 · 23mm · f/1.63" data-size="6.1 MB" onclick="openPreview('pic-4')">
+                        <div class="photo-img-placeholder"><span>横屏 2</span></div>
+                        <div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-4')"><div class="checkbox-overlay"></div></div>
+                    </div>
+                    <div class="photo-card selected" id="pic-5" data-name="海边日落 (画面微糊)" data-type="landscape" data-time="2026-05-20 19:05:25" data-location="三亚市 · 后海角" data-model="Xiaomi 14 Ultra" data-pixel="1200 万像素 (4000 × 3000)" data-iso="ISO 200 · 23mm · f/1.63" data-size="4.9 MB" onclick="openPreview('pic-5')">
+                        <div class="photo-img-placeholder"><span>横屏 3</span></div>
+                        <div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5')"><div class="checkbox-overlay"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="photo-group" id="group-3">
+                <div class="group-header">
+                    <span class="group-title">4 张照片 (滑动连拍)</span>
+                    <span class="group-select-all" onclick="toggleGroup('group-3')">全选</span>
+                </div>
+                <div class="photo-carousel">
+                    <div class="photo-card" id="pic-3-1" data-name="街头滑板 01" data-type="portrait" data-time="2026-05-10" data-location="成都太古里" data-model="iPhone 15" data-pixel="2400万" data-iso="ISO 80" data-size="4.1 MB" onclick="openPreview('pic-3-1')"><div class="best-pick-star">★</div><div class="photo-img-placeholder"><span>图 1</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-3-1')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-3-2" data-name="街头滑板 02" data-type="portrait" data-time="2026-05-10" data-location="成都太古里" data-model="iPhone 15" data-pixel="2400万" data-iso="ISO 80" data-size="4.0 MB" onclick="openPreview('pic-3-2')"><div class="photo-img-placeholder"><span>图 2</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-3-2')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-3-3" data-name="街头滑板 03" data-type="portrait" data-time="2026-05-10" data-location="成都太古里" data-model="iPhone 15" data-pixel="2400万" data-iso="ISO 90" data-size="4.2 MB" onclick="openPreview('pic-3-3')"><div class="photo-img-placeholder"><span>图 3</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-3-3')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-3-4" data-name="街头滑板 04" data-type="portrait" data-time="2026-05-10" data-location="成都太古里" data-model="iPhone 15" data-pixel="2400万" data-iso="ISO 100" data-size="3.9 MB" onclick="openPreview('pic-3-4')"><div class="photo-img-placeholder"><span>图 4</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-3-4')"><div class="checkbox-overlay"></div></div></div>
+                </div>
+            </div>
+
+            <div class="photo-group landscape-group" id="group-4">
+                <div class="group-header">
+                    <span class="group-title">5 张照片 (横屏大图滑动)</span>
+                    <span class="group-select-all" onclick="toggleGroup('group-4')">全选</span>
+                </div>
+                <div class="photo-carousel">
+                    <div class="photo-card" id="pic-6" data-name="赛车起跑线 (最佳角度)" data-type="landscape" data-time="2026-04-12 14:00:01" data-location="上海国际赛车场" data-model="HUAWEI Pura 70" data-pixel="5000 万" data-iso="ISO 50 · f/1.4" data-size="5.2 MB" onclick="openPreview('pic-6')"><div class="best-pick-star">★</div><div class="photo-img-placeholder"><span>横屏 1</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-7" data-name="赛车起跑线 B" data-type="landscape" data-time="2026-04-12 14:00:02" data-location="上海国际赛车场" data-model="HUAWEI Pura 70" data-pixel="5000 万" data-iso="ISO 50" data-size="5.0 MB" onclick="openPreview('pic-7')"><div class="photo-img-placeholder"><span>横屏 2</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-7')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-8" data-name="赛车起跑线 C" data-type="landscape" data-time="2026-04-12 14:00:03" data-location="上海国际赛车场" data-model="HUAWEI Pura 70" data-pixel="5000 万" data-iso="ISO 50" data-size="5.1 MB" onclick="openPreview('pic-8')"><div class="photo-img-placeholder"><span>横屏 3</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-8')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-9" data-name="赛车起跑线 D" data-type="landscape" data-time="2026-04-12 14:00:04" data-location="上海国际赛车场" data-model="HUAWEI Pura 70" data-pixel="5000 万" data-iso="ISO 50" data-size="5.3 MB" onclick="openPreview('pic-9')"><div class="photo-img-placeholder"><span>横屏 4</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-9')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-10" data-name="赛车起跑线 E" data-type="landscape" data-time="2026-04-12 14:00:05" data-location="上海国际赛车场" data-model="HUAWEI Pura 70" data-pixel="5000 万" data-iso="ISO 50" data-size="4.8 MB" onclick="openPreview('pic-10')"><div class="photo-img-placeholder"><span>横屏 5</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-10')"><div class="checkbox-overlay"></div></div></div>
+                </div>
+            </div>
+
+            <div class="photo-group" id="group-5">
+                <div class="group-header">
+                    <span class="group-title">6 张照片 (大型现场连拍)</span>
+                    <span class="group-select-all" onclick="toggleGroup('group-5')">全选</span>
+                </div>
+                <div class="photo-carousel">
+                    <div class="photo-card" id="pic-5-1" data-name="Livehouse 完美定格" data-type="portrait" data-time="2026-03-15" data-location="MAO Livehouse" data-model="iPhone 15 Pro" data-pixel="4800万" data-iso="ISO 400" data-size="5.5 MB" onclick="openPreview('pic-5-1')"><div class="best-pick-star">★</div><div class="photo-img-placeholder"><span>完美定格</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5-1')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-5-2" data-name="Livehouse 连拍 B" data-type="portrait" data-time="2026-03-15" data-location="MAO Livehouse" data-model="iPhone 15 Pro" data-pixel="1200万" data-iso="ISO 450" data-size="3.7 MB" onclick="openPreview('pic-5-2')"><div class="photo-img-placeholder"><span>连拍 B</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5-2')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-5-3" data-name="Livehouse 连拍 C" data-type="portrait" data-time="2026-03-15" data-location="MAO Livehouse" data-model="iPhone 15 Pro" data-pixel="1200万" data-iso="ISO 420" data-size="3.6 MB" onclick="openPreview('pic-5-3')"><div class="photo-img-placeholder"><span>连拍 C</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5-3')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-5-4" data-name="Livehouse 连拍 D" data-type="portrait" data-time="2026-03-15" data-location="MAO Livehouse" data-model="iPhone 15 Pro" data-pixel="1200万" data-iso="ISO 500" data-size="3.9 MB" onclick="openPreview('pic-5-4')"><div class="photo-img-placeholder"><span>连拍 D</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5-4')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-5-5" data-name="Livehouse 连拍 E" data-type="portrait" data-time="2026-03-15" data-location="MAO Livehouse" data-model="iPhone 15 Pro" data-pixel="1200万" data-iso="ISO 400" data-size="3.8 MB" onclick="openPreview('pic-5-5')"><div class="photo-img-placeholder"><span>连拍 E</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5-5')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-5-6" data-name="Livehouse 连拍 F" data-type="portrait" data-time="2026-03-15" data-location="MAO Livehouse" data-model="iPhone 15 Pro" data-pixel="1200万" data-iso="ISO 600" data-size="4.0 MB" onclick="openPreview('pic-5-6')"><div class="photo-img-placeholder"><span>连拍 F</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-5-6')"><div class="checkbox-overlay"></div></div></div>
+                </div>
+            </div>
+
+            <div class="photo-group" id="group-6">
+                <div class="group-header">
+                    <span class="group-title">7 张照片 (多图连拍对比)</span>
+                    <span class="group-select-all" onclick="toggleGroup('group-6')">全选</span>
+                </div>
+                <div class="photo-carousel">
+                    <div class="photo-card" id="pic-6-1" data-name="高山攀登 (核心保留)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 100" data-size="3.5 MB" onclick="openPreview('pic-6-1')"><div class="best-pick-star">★</div><div class="photo-img-placeholder"><span>核心保留</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-1')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-6-2" data-name="高山攀登 (过曝废片)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 100" data-size="3.4 MB" onclick="openPreview('pic-6-2')"><div class="photo-img-placeholder"><span>过曝图</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-2')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-6-3" data-name="高山攀登 (微瑕构图)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 100" data-size="3.5 MB" onclick="openPreview('pic-6-3')"><div class="photo-img-placeholder"><span>微瑕图</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-3')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-6-4" data-name="高山攀登 (雪地反光)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 120" data-size="3.3 MB" onclick="openPreview('pic-6-4')"><div class="photo-img-placeholder"><span>闭眼图</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-4')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-6-5" data-name="高山攀登 (镜头水渍)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 100" data-size="3.6 MB" onclick="openPreview('pic-6-5')"><div class="photo-img-placeholder"><span>模糊图</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-5')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-6-6" data-name="高山攀登 (废片 F)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 150" data-size="3.2 MB" onclick="openPreview('pic-6-6')"><div class="photo-img-placeholder"><span>废片 F</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-6')"><div class="checkbox-overlay"></div></div></div>
+                    <div class="photo-card selected" id="pic-6-7" data-name="高山攀登 (废片 G)" data-type="portrait" data-time="2026-02-18" data-location="四姑娘山" data-model="DJI Action 4" data-pixel="1200万" data-iso="ISO 100" data-size="3.5 MB" onclick="openPreview('pic-6-7')"><div class="photo-img-placeholder"><span>废片 G</span></div><div class="checkbox-container" onclick="stopBubbleAndToggle(event, 'pic-6-7')"><div class="checkbox-overlay"></div></div></div>
+                </div>
+            </div>
+
+        </main>
+
+        <section class="action-bar-bottom">
+            <div class="action-info">
+                <span class="selected-count" id="total-selected-text">正在计算...</span>
+                <span class="selected-size" id="total-size-text"></span>
+            </div>
+            <button class="delete-btn" onclick="executeDelete()">移至废纸篓</button>
+        </section>
+
+        <div class="preview-overlay" id="previewOverlay" onclick="closePreview()">
+            
+            <div class="preview-tip">💡 点击屏幕任意处返回</div>
+
+            <div class="preview-header">
+                <div class="preview-select-zone" id="previewSelectZone" onclick="stopBubbleAndTogglePreview(event)">
+                    <div class="preview-checkbox"></div>
+                    <span style="font-size: 13px; font-weight: 500;">勾选删除</span>
+                </div>
+            </div>
+
+            <div class="preview-image-container">
+                <div class="preview-img-mock" id="previewImgMock">
+                    📸 照片大图渲染区
+                </div>
+            </div>
+
+            <div class="preview-details" onclick="event.stopPropagation()">
+                <div class="preview-title-text" id="metaName">照片名称</div>
+                <div class="meta-grid">
+                    <div class="meta-item"><span class="icon">📅</span><b id="metaTime">-</b></div>
+                    <div class="meta-item"><span class="icon">📍</span><b id="metaLocation">-</b></div>
+                    <div class="meta-item"><span class="icon">📱</span><b id="metaModel">-</b></div>
+                    <div class="meta-item"><span class="icon">📷</span><b id="metaPixel">-</b></div>
+                    <div class="meta-item"><span class="icon">⚙️</span><b id="metaIso">-</b></div>
+                    <div class="meta-item"><span class="icon">💾</span><b id="metaSize">-</b></div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let currentPreviewId = null;
+
+        function updateCounter() {
+            const selectedItems = document.querySelectorAll('.photo-card.selected');
+            const count = selectedItems.length;
+            const calculatedSize = (count * 4.5).toFixed(1);
+
+            document.getElementById('total-selected-text').innerText = `已选择 ${count} 张照片`;
+            document.getElementById('total-size-text').innerText = count > 0 
+                ? `将释放 ${calculatedSize} MB` 
+                : `未选择照片`;
+        }
+
+        // 打开全屏大图预览
+        function openPreview(id) {
+            currentPreviewId = id;
+            const card = document.getElementById(id);
+            
+            // 填充核心元数据参数
+            document.getElementById('metaName').innerText = card.getAttribute('data-name') || "未命名图像";
+            document.getElementById('metaTime').innerText = card.getAttribute('data-time') || "未知时间";
+            document.getElementById('metaLocation').innerText = card.getAttribute('data-location') || "未定位";
+            document.getElementById('metaModel').innerText = card.getAttribute('data-model') || "未知机型";
+            document.getElementById('metaPixel').innerText = card.getAttribute('data-pixel') || "未知分辨率";
+            document.getElementById('metaIso').innerText = card.getAttribute('data-iso') || "-";
+            document.getElementById('metaSize').innerText = card.getAttribute('data-size') || "0 MB";
+
+            // 根据数据类型动态调配大图展示框比例（4:3 或 3:4）
+            const imgMock = document.getElementById('previewImgMock');
+            if(card.getAttribute('data-type') === 'landscape') {
+                imgMock.className = "preview-img-mock landscape";
+                imgMock.innerText = "📸 " + card.getAttribute('data-name') + " [横屏高清原图预览]";
+            } else {
+                imgMock.className = "preview-img-mock portrait";
+                imgMock.innerText = "📸 " + card.getAttribute('data-name') + " [竖屏高清原图预览]";
+            }
+
+            // 同步列表中的复选状态到大图预览框
+            const selectZone = document.getElementById('previewSelectZone');
+            if(card.classList.contains('selected')) {
+                selectZone.classList.add('active');
+            } else {
+                selectZone.classList.remove('active');
+            }
+
+            document.getElementById('previewOverlay').style.display = 'flex';
+        }
+
+        // 关闭大图浮层
+        function closePreview() {
+            document.getElementById('previewOverlay').style.display = 'none';
+            currentPreviewId = null;
+        }
+
+        // 大图内部：点击右上角勾选区（阻止冒泡，保证不触发关闭浮层）
+        function stopBubbleAndTogglePreview(event) {
+            event.stopPropagation(); 
+            if (!currentPreviewId) return;
+            
+            const card = document.getElementById(currentPreviewId);
+            const selectZone = document.getElementById('previewSelectZone');
+            
+            card.classList.toggle('selected');
+            selectZone.classList.toggle('active');
+            
+            updateCounter();
+        }
+
+        // 列表页面：点击照片右下角小方框快捷勾选（阻止冒泡，防止直接打开大图）
+        function stopBubbleAndToggle(event, id) {
+            event.stopPropagation(); 
+            const card = document.getElementById(id);
+            card.classList.toggle('selected');
+            updateCounter();
+        }
+
+        // 组全选逻辑
+        function toggleGroup(groupId) {
+            const group = document.getElementById(groupId);
+            const cards = group.querySelectorAll('.photo-card');
+            const selectedInGroup = group.querySelectorAll('.photo-card.selected');
+            const shouldSelectAll = selectedInGroup.length < cards.length;
+
+            cards.forEach(card => {
+                if (shouldSelectAll) {
+                    card.classList.add('selected');
+                } else {
+                    card.classList.remove('selected');
+                }
+            });
+            updateCounter();
+        }
+
+        // 全局一键全选
+        let globalSelected = true;
+        function toggleSelectAllGlobal() {
+            const allCards = document.querySelectorAll('.photo-card');
+            allCards.forEach(card => {
+                if (globalSelected) {
+                    card.classList.remove('selected');
+                } else {
+                    card.classList.add('selected');
+                }
+            });
+            globalSelected = !globalSelected;
+            updateCounter();
+        }
+
+        // 触发删除动作
+        function executeDelete() {
+            const selectedCount = document.querySelectorAll('.photo-card.selected').length;
+            if (selectedCount === 0) {
+                alert('请至少选择一张照片进行清理。');
+                return;
+            }
+            alert(`成功将 ${selectedCount} 张照片移至系统废纸篓！`);
+        }
+
+        updateCounter();
+    </script>
+</body>
+</html>

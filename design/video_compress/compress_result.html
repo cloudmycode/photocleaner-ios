@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Cleaner - Compress Result</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f6f8fa; /* 完美同步大背景 */
+            color: #1f2328;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            width: 100%;
+            max-width: 414px;
+            background-color: #f6f8fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 24px 20px calc(24px + env(safe-area-inset-bottom)) 20px;
+            justify-content: space-between; /* 让内容和底部操作按钮两端对齐 */
+        }
+
+        /* 上部内容包裹区 */
+        .content-top {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            margin-top: 40px;
+        }
+
+        /* 极简无对勾大标题 */
+        .page-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2328;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+
+        .page-subtitle {
+            font-size: 13px;
+            color: #57606a;
+            margin-bottom: 32px;
+        }
+
+        /* 成果结算大仪表盘卡片 */
+        .dashboard-card {
+            width: 100%;
+            background-color: #ffffff;
+            border: 1px solid #e1e4e8;
+            border-radius: 12px;
+            padding: 24px 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .saved-highlight {
+            font-size: 40px;
+            font-weight: 800;
+            color: #2da44e; /* 经典高级绿，突出成就 */
+            letter-spacing: -1px;
+            margin-bottom: 4px;
+        }
+
+        .saved-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #57606a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 20px;
+        }
+
+        /* 细分体积对比流 */
+        .data-compare-flow {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            border-top: 1px solid #f0f2f5;
+            padding-top: 16px;
+        }
+
+        .data-node {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .node-label {
+            font-size: 11px;
+            color: #57606a;
+        }
+
+        .node-val-old {
+            font-size: 15px;
+            font-weight: 600;
+            color: #57606a;
+            text-decoration: line-through; /* 划掉过去 */
+        }
+
+        .node-val-new {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1f2328;
+        }
+
+        .flow-arrow {
+            font-size: 14px;
+            color: #bcbfc4;
+        }
+
+        /* 下部交互动作区：核心原件处理单选组 */
+        .action-bottom-area {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .section-desc-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #57606a;
+            margin-bottom: 4px;
+            margin-left: 4px;
+        }
+
+        /* 原件处理双策略卡片（按钮） */
+        .strategy-card {
+            background-color: #ffffff;
+            border: 1px solid #e1e4e8;
+            border-radius: 10px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        /* 被选中状态：高亮边框和淡淡的浅蓝/深黑阴影，契合白底规范 */
+        .strategy-card.selected {
+            border-color: #0a84ff;
+            background-color: rgba(10, 132, 255, 0.02);
+            box-shadow: 0 0 0 1px #0a84ff;
+        }
+
+        .strategy-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .strategy-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1f2328;
+        }
+
+        .strategy-desc {
+            font-size: 12px;
+            color: #57606a;
+            line-height: 1.4;
+        }
+
+        /* 极简原件圆形单选钮 */
+        .radio-dot {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #e1e4e8;
+            border-radius: 50%;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .strategy-card.selected .radio-dot {
+            border-color: #0a84ff;
+            background-color: #0a84ff;
+        }
+
+        .strategy-card.selected .radio-dot::after {
+            content: '';
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background-color: #ffffff;
+            border-radius: 50%;
+            top: 4px; left: 4px;
+        }
+
+        /* 固底物理确认大蓝纽 */
+        .confirm-submit-btn {
+            margin-top: 12px;
+            background-color: #0a84ff;
+            color: #ffffff;
+            border: none;
+            text-align: center;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+            width: 100%;
+        }
+
+        .confirm-submit-btn:active {
+            opacity: 0.85;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <div class="content-top">
+            <h2 class="page-title">优化完成</h2>
+            <p class="page-subtitle">底层硬件级多媒体并行转码已成功结束</p>
+
+            <div class="dashboard-card">
+                <div class="saved-highlight" id="savedSpace">- 1.46 GB</div>
+                <div class="saved-label">已成功释放本地空间</div>
+                
+                <div class="data-compare-flow">
+                    <div class="data-node">
+                        <span class="node-label">原始总体积</span>
+                        <span class="node-val-old">1.88 GB</span>
+                    </div>
+                    <div class="flow-arrow">➔</div>
+                    <div class="data-node">
+                        <span class="node-label">压缩后总体积</span>
+                        <span class="node-val-new">420 MB</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bottom-area">
+            <div class="section-desc-title">请选择原大体积视频的处理方式</div>
+
+            <div class="strategy-card selected" id="strat-delete" onclick="selectStrategy('delete')">
+                <div class="strategy-info">
+                    <span class="strategy-name">替换原视频（推荐）</span>
+                    <span class="strategy-desc">保留压缩后的新文件，原视频将移至系统“最近删除”相册，彻底释放磁盘空间。</span>
+                </div>
+                <div class="radio-dot"></div>
+            </div>
+
+            <div class="strategy-card" id="strat-keep" onclick="selectStrategy('keep')">
+                <div class="strategy-info">
+                    <span class="strategy-name">同时保留两个视频</span>
+                    <span class="strategy-desc">原大体积视频不做任何更改，同时将压缩好的新视频作为新资产副本单独存入相册。</span>
+                </div>
+                <div class="radio-dot"></div>
+            </div>
+
+            <button class="confirm-submit-btn" onclick="executeAssetStrategy()">
+                确认并应用更改
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        let currentStrategy = 'delete'; // 默认选中的策略
+
+        // 单选交互控制
+        function selectStrategy(type) {
+            currentStrategy = type;
+            const deleteCard = document.getElementById('strat-delete');
+            const keepCard = document.getElementById('strat-keep');
+
+            if (type === 'delete') {
+                deleteCard.classList.add('selected');
+                keepCard.classList.remove('selected');
+            } else {
+                keepCard.classList.add('selected');
+                deleteCard.classList.remove('selected');
+            }
+        }
+
+        // 点击固底按钮，向底层（或者原生桥梁）发送最终决策指令
+        function executeAssetStrategy() {
+            if (currentStrategy === 'delete') {
+                alert('🚀 底层安全阀触发：正在调用相册接口将原件移入系统回收站...空间释放成功！即将返回首页。');
+            } else {
+                alert('🔒 安全留存：双副本已写入相册，未对原片做任何改动。即将返回首页。');
+            }
+            // 随后可以安全跳转回主产品页面
+            window.location.href = "home.html";
+        }
+    </script>
+</body>
+</html>

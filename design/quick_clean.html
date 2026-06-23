@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Cleaner - Pure Product UI</title>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #ffffff;
+            color: #1f2328;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* 模拟标准移动端界面的宽度 */
+        .app-container {
+            width: 100%;
+            max-width: 414px;
+            background-color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #f0f2f5;
+            border-right: 1px solid #f0f2f5;
+            position: relative;
+            /* 为底部固定工具栏预留出足够的安全垫空间 */
+            padding-bottom: 80px; 
+        }
+
+        .app-header {
+            padding: 24px 16px 8px 16px;
+            background-color: #ffffff;
+        }
+
+        .app-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1f2328;
+            letter-spacing: -0.6px;
+        }
+
+        /* 顶部存储大盘 */
+        .storage-section {
+            padding: 8px 16px 20px 16px;
+            background-color: #ffffff;
+        }
+
+        .storage-card {
+            background-color: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .storage-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+
+        .storage-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #57606a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .storage-value {
+            font-size: 30px;
+            font-weight: 700;
+            color: #0969da;
+            letter-spacing: -0.5px;
+        }
+
+        .storage-description {
+            font-size: 12px;
+            color: #57606a;
+        }
+
+        /* 分组通栏标签 */
+        .section-group-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #57606a;
+            padding: 16px 16px 8px 16px;
+            background-color: #f8f9fa;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            border-top: 1px solid #f0f2f5;
+            border-bottom: 1px solid #f0f2f5;
+        }
+
+        .menu-list {
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+        }
+
+        /* 通栏贯穿布局 */
+        .menu-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            border-bottom: 1px solid #f0f2f5;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            position: relative;
+        }
+
+        .menu-item:hover, .menu-item:active {
+            background-color: #f8f9fa;
+        }
+
+        .menu-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+        }
+
+        /* 功能色彩条指示 */
+        .item-duplicates::before  { background-color: #f3a931; }
+        .item-similar::before     { background-color: #2f80ed; }
+        .item-screenshots::before { background-color: #eb5757; }
+        .item-lowquality::before  { background-color: #9b51e0; }
+        .item-largeimages::before { background-color: #27ae60; }
+        .item-allvideos::before   { background-color: #2d9cdb; }
+        .item-largevideos::before { background-color: #f2994a; }
+        .item-screenrec::before   { background-color: #4f4f4f; }
+        .item-emptyalbums::before { background-color: #bb6bd9; }
+
+        .text-block {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .item-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1f2328;
+        }
+
+        .item-count-sub {
+            font-size: 12px;
+            color: #57606a;
+            margin-top: 2px;
+        }
+
+        .action-block {
+            display: flex;
+            align-items: center;
+        }
+
+        .item-size {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1f2328;
+            text-align: right;
+        }
+
+        .arrow-right {
+            width: 6px;
+            height: 6px;
+            border-top: 2px solid #8c959f;
+            border-right: 2px solid #8c959f;
+            transform: rotate(45deg);
+            margin-left: 12px;
+            opacity: 0.8;
+        }
+
+        .app-footer {
+            text-align: center;
+            font-size: 12px;
+            color: #8c959f;
+            padding: 32px 16px;
+            background-color: #f8f9fa;
+        }
+
+        /* 底部原生系统级工具栏 */
+        .bottom-tabbar {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            max-width: 414px; /* 与容器宽度保持绝对一致 */
+            height: 64px;
+            background-color: #ffffff;
+            border-top: 1px solid #e1e4e8;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 999;
+            padding-bottom: env(safe-area-inset-bottom); /* 兼容现代全面屏底部的安全区域 */
+        }
+
+        .tab-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            height: 100%;
+            cursor: pointer;
+            text-decoration: none;
+            color: #57606a; /* 默认未激活颜色 */
+            transition: color 0.2s ease;
+        }
+
+        /* 纯极简线条图标模拟 */
+        .tab-icon {
+            width: 22px;
+            height: 22px;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tab-label {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        /* 激活态高亮样式（当前处于“快速清理”） */
+        .tab-item.active {
+            color: #0969da; /* 激活态硬核经典蓝 */
+        }
+
+        /* 极简矢量图标骨架样式 */
+        .icon-clean { border: 2px solid currentColor; border-radius: 4px; position: relative; width: 18px; height: 18px; }
+        .icon-clean::after { content: ''; position: absolute; width: 6px; height: 2px; background: currentColor; top: 3px; left: 4px; }
+        
+        .icon-albums { border: 2px solid currentColor; border-radius: 2px; width: 18px; height: 16px; position: relative; }
+        .icon-albums::after { content: ''; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: currentColor; top: 3px; left: 3px; }
+
+        .video-compress { width: 16px; height: 18px; border: 2px solid currentColor; border-top: none; border-bottom-left-radius: 2px; border-bottom-right-radius: 2px; position: relative; }
+        .video-compress::before { content: ''; position: absolute; width: 20px; height: 2px; background: currentColor; top: -2px; left: -4px; }
+
+        .icon-settings { width: 16px; height: 16px; border: 2px solid currentColor; border-radius: 50%; position: relative; }
+        .icon-settings::after { content: ''; position: absolute; width: 6px; height: 6px; border: 2px solid currentColor; border-radius: 50%; top: 3px; left: 3px; }
+
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <header class="app-header">
+            <h1 class="app-title">Smart Cleaner</h1>
+        </header>
+
+        <section class="storage-section">
+            <div class="storage-card">
+                <div class="storage-meta">
+                    <span class="storage-label">Media Storage</span>
+                    <span class="storage-value">42.15 GB</span>
+                </div>
+                <div class="storage-description">Total space occupied by photos and videos</div>
+            </div>
+        </section>
+
+        <div class="section-group-label">Photos</div>
+        <nav class="menu-list">
+            <div class="menu-item item-duplicates">
+                <div class="text-block">
+                    <span class="item-title">Duplicate Photos</span>
+                    <span class="item-count-sub">124 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">1.21 GB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+
+            <div class="menu-item item-similar">
+                <div class="text-block">
+                    <span class="item-title">Similar Photos</span>
+                    <span class="item-count-sub">1,957 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">5.31 GB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+
+            <div class="menu-item item-screenshots">
+                <div class="text-block">
+                    <span class="item-title">Screenshots</span>
+                    <span class="item-count-sub">412 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">50.8 MB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+
+            <div class="menu-item item-lowquality">
+                <div class="text-block">
+                    <span class="item-title">Low Quality</span>
+                    <span class="item-count-sub">6 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">1.4 MB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+
+            <div class="menu-item item-largeimages">
+                <div class="text-block">
+                    <span class="item-title">Large Images</span>
+                    <span class="item-count-sub">85 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">2.52 GB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="section-group-label">Videos</div>
+        <nav class="menu-list">
+            <div class="menu-item item-allvideos">
+                <div class="text-block">
+                    <span class="item-title">All Videos</span>
+                    <span class="item-count-sub">1,167 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">29.92 GB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+
+            <div class="menu-item item-largevideos">
+                <div class="text-block">
+                    <span class="item-title">Large Videos</span>
+                    <span class="item-count-sub">57 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">11.06 GB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+
+            <div class="menu-item item-screenrec">
+                <div class="text-block">
+                    <span class="item-title">Screen Recordings</span>
+                    <span class="item-count-sub">3 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">76.2 MB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="section-group-label">Albums</div>
+        <nav class="menu-list">
+            <div class="menu-item item-emptyalbums">
+                <div class="text-block">
+                    <span class="item-title">Empty Albums</span>
+                    <span class="item-count-sub">10 items</span>
+                </div>
+                <div class="action-block">
+                    <span class="item-size">0 KB</span>
+                    <span class="arrow-right"></span>
+                </div>
+            </div>
+        </nav>
+
+        <footer class="app-footer">
+            End of Storage Analysis
+        </footer>
+
+        <!-- 新增：底部四 Tab 工具栏 -->
+        <nav class="bottom-tabbar">
+            <div class="tab-item active">
+                <div class="tab-icon"><div class="icon-clean"></div></div>
+                <span class="tab-label">Quick Clean</span>
+            </div>
+            <div class="tab-item">
+                <div class="tab-icon"><div class="icon-albums"></div></div>
+                <span class="tab-label">Albums</span>
+            </div>
+            <div class="tab-item">
+                <div class="tab-icon"><div class="video-compress"></div></div>
+                <span class="tab-label">Video Compress</span>
+            </div>
+            <div class="tab-item">
+                <div class="tab-icon"><div class="icon-settings"></div></div>
+                <span class="tab-label">Settings</span>
+            </div>
+        </nav>
+
+    </div>
+
+</body>
+</html>
