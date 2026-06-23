@@ -191,3 +191,44 @@ enum PhotoFingerprintSignature {
         ].joined(separator: ":")
     }
 }
+
+actor MonthlyReviewStore {
+    struct State: Codable {
+        var reviewedIDs: Set<String>
+        var markedIDs: Set<String>
+    }
+
+    private let fileURL: URL
+
+    init() {
+        let baseURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let directory = baseURL.appendingPathComponent(
+            "MonthlyReview",
+            isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        fileURL = directory.appendingPathComponent("progress.json")
+    }
+
+    func load() -> [String: State] {
+        guard let data = try? Data(contentsOf: fileURL),
+              let stored = try? JSONDecoder().decode(
+                [String: State].self,
+                from: data
+              ) else {
+            return [:]
+        }
+        return stored
+    }
+
+    func save(_ states: [String: State]) throws {
+        let data = try JSONEncoder().encode(states)
+        try data.write(to: fileURL, options: .atomic)
+    }
+}

@@ -52,6 +52,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var largeVideoAssets: [PHAsset] = []
     @Published private(set) var screenRecordingAssets: [PHAsset] = []
     @Published private(set) var monthGroups: [PhotoMonthGroup] = []
+    @Published private(set) var monthlyReviewedIDs: [String: Set<String>] = [:]
+    @Published private(set) var monthlyMarkedIDs: [String: Set<String>] = [:]
     @Published private(set) var duplicateGroups: [SimilarAssetGroup] = []
     @Published private(set) var similarGroups: [SimilarAssetGroup] = []
     @Published private(set) var duplicateScanProgress: (current: Int, total: Int)?
@@ -65,6 +67,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private let similarityThreshold: Float = 0.34
     private let analysisCache = SimilarAnalysisCache()
     private let duplicateCache = DuplicateFingerprintCache()
+    private let monthlyReviewStore = MonthlyReviewStore()
     private var scanTask: Task<Void, Never>?
 
     override init() {
@@ -131,6 +134,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                     .reversed()
             )
             monthGroups = Self.makeMonthGroups(from: assets)
+            await restoreMonthlyReviewProgress()
             await scanDuplicates(in: assets)
 
             let candidates = Self.continuousShotCandidateGroups(
@@ -220,6 +224,45 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    func reviewedIDs(for monthID: String) -> Set<String> {
+        monthlyReviewedIDs[monthID] ?? []
+    }
+
+    func markedIDs(for monthID: String) -> Set<String> {
+        monthlyMarkedIDs[monthID] ?? []
+    }
+
+    func monthlyProgress(for group: PhotoMonthGroup) -> Double {
+        guard !group.assets.isEmpty else { return 1 }
+        let availableIDs = Set(group.assets.map(\.localIdentifier))
+        let reviewed = reviewedIDs(for: group.id).intersection(availableIDs)
+        return Double(reviewed.count) / Double(availableIDs.count)
+    }
+
+    func setMonthlyAsset(
+        _ assetID: String,
+        reviewed: Bool,
+        markedForDeletion: Bool = false,
+        monthID: String
+    ) {
+        var reviewedIDs = monthlyReviewedIDs[monthID] ?? []
+        var markedIDs = monthlyMarkedIDs[monthID] ?? []
+        if reviewed {
+            reviewedIDs.insert(assetID)
+            if markedForDeletion {
+                markedIDs.insert(assetID)
+            } else {
+                markedIDs.remove(assetID)
+            }
+        } else {
+            reviewedIDs.remove(assetID)
+            markedIDs.remove(assetID)
+        }
+        monthlyReviewedIDs[monthID] = reviewedIDs
+        monthlyMarkedIDs[monthID] = markedIDs
+        persistMonthlyReviewProgress()
+    }
+
     func clearAnalysisCache() {
         scanTask?.cancel()
         Task {
@@ -228,6 +271,49 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             analysisCacheSize = 0
             scanState = .idle
         }
+    }
+
+    private func restoreMonthlyReviewProgress() async {
+        let stored = await monthlyReviewStore.load()
+        var reconciledReviewed: [String: Set<String>] = [:]
+        var reconciledMarked: [String: Set<String>] = [:]
+        for group in monthGroups {
+            let availableIDs = Set(group.assets.map(\.localIdentifier))
+            let reviewed = (stored[group.id]?.reviewedIDs ?? [])
+                .intersection(availableIDs)
+            let marked = (stored[group.id]?.markedIDs ?? [])
+                .intersection(availableIDs)
+            if !reviewed.isEmpty {
+                reconciledReviewed[group.id] = reviewed
+            }
+            if !marked.isEmpty {
+                reconciledMarked[group.id] = marked
+            }
+        }
+        monthlyReviewedIDs = reconciledReviewed
+        monthlyMarkedIDs = reconciledMarked
+        try? await monthlyReviewStore.save(monthlyReviewStates())
+    }
+
+    private func persistMonthlyReviewProgress() {
+        let snapshot = monthlyReviewStates()
+        Task {
+            try? await monthlyReviewStore.save(snapshot)
+        }
+    }
+
+    private func monthlyReviewStates() -> [String: MonthlyReviewStore.State] {
+        let monthIDs = Set(monthlyReviewedIDs.keys)
+            .union(monthlyMarkedIDs.keys)
+        return Dictionary(uniqueKeysWithValues: monthIDs.map { monthID in
+            (
+                monthID,
+                MonthlyReviewStore.State(
+                    reviewedIDs: monthlyReviewedIDs[monthID] ?? [],
+                    markedIDs: monthlyMarkedIDs[monthID] ?? []
+                )
+            )
+        })
     }
 
     private func scanDuplicates(in assets: [PHAsset]) async {

@@ -124,3 +124,5 @@
 "month.review.complete" = "Month Reviewed";
 "month.review.complete.description" = "All photos in this month have been reviewed.";
 "cancel" = "Cancel";
+"month.progress.format" = "%d of %d reviewed";
+"month.progress.complete" = "Complete";

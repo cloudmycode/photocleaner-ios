@@ -180,6 +180,7 @@ struct AlbumsView: View {
                     CleanerSection(title: month.date.formatted(.dateTime.year())) {
                         NavigationLink {
                             MonthlyReviewView(
+                                monthID: month.id,
                                 title: month.date.formatted(.dateTime.year().month(.wide)),
                                 assets: month.assets
                             )
@@ -202,6 +203,7 @@ private struct MonthReviewAction {
 
 struct MonthlyReviewView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    let monthID: String
     let title: String
     let assets: [PHAsset]
 
@@ -288,6 +290,10 @@ struct MonthlyReviewView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deletionError ?? "")
+        }
+        .onAppear {
+            reviewedIDs = library.reviewedIDs(for: monthID)
+            markedIDs = library.markedIDs(for: monthID)
         }
     }
 
@@ -406,6 +412,12 @@ struct MonthlyReviewView: View {
         let id = asset.localIdentifier
         history.append(MonthReviewAction(id: id, markedForDeletion: markForDeletion))
         reviewedIDs.insert(id)
+        library.setMonthlyAsset(
+            id,
+            reviewed: true,
+            markedForDeletion: markForDeletion,
+            monthID: monthID
+        )
         if markForDeletion {
             markedIDs.insert(id)
         }
@@ -415,6 +427,7 @@ struct MonthlyReviewView: View {
     private func undo() {
         guard let action = history.popLast() else { return }
         reviewedIDs.remove(action.id)
+        library.setMonthlyAsset(action.id, reviewed: false, monthID: monthID)
         if action.markedForDeletion {
             markedIDs.remove(action.id)
         }
@@ -425,6 +438,13 @@ struct MonthlyReviewView: View {
         Task {
             do {
                 try await library.deleteAssets(with: identifiers)
+                identifiers.forEach {
+                    library.setMonthlyAsset(
+                        $0,
+                        reviewed: false,
+                        monthID: monthID
+                    )
+                }
                 removedIDs.formUnion(identifiers)
                 reviewedIDs.subtract(identifiers)
                 markedIDs.subtract(identifiers)
@@ -437,7 +457,19 @@ struct MonthlyReviewView: View {
 }
 
 private struct MonthAssetRow: View {
+    @EnvironmentObject private var library: PhotoLibraryService
     let group: PhotoMonthGroup
+
+    private var progress: Double {
+        library.monthlyProgress(for: group)
+    }
+
+    private var reviewedCount: Int {
+        let availableIDs = Set(group.assets.map(\.localIdentifier))
+        return library.reviewedIDs(for: group.id)
+            .intersection(availableIDs)
+            .count
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -449,16 +481,36 @@ private struct MonthAssetRow: View {
                 .frame(width: 56, height: 56)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(group.date.formatted(.dateTime.month(.wide)))
-                    .font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text(group.date.formatted(.dateTime.month(.wide)))
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if progress >= 1 {
+                        Label("month.progress.complete", systemImage: "checkmark")
+                            .font(.caption2.bold())
+                            .foregroundStyle(Color.cleanerGreen)
+                    } else {
+                        Text(
+                            String.localizedStringWithFormat(
+                                String(localized: "month.progress.format"),
+                                reviewedCount,
+                                group.assets.count
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                ProgressView(value: progress)
+                    .tint(progress >= 1 ? .cleanerGreen : .cleanerBlue)
                 Text(
                     String.localizedStringWithFormat(
                         String(localized: "items.count.format"),
                         group.assets.count
                     )
                 )
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.secondary)
             }
             Spacer()
@@ -468,7 +520,8 @@ private struct MonthAssetRow: View {
                 .frame(width: 24, alignment: .trailing)
         }
         .padding(.horizontal, 20)
-        .frame(minHeight: 72)
+        .padding(.vertical, 10)
+        .frame(minHeight: 88)
         .background(.white)
     }
 }

@@ -124,3 +124,5 @@
 "month.review.complete" = "今月の確認完了";
 "month.review.complete.description" = "今月の写真をすべて確認しました。";
 "cancel" = "キャンセル";
+"month.progress.format" = "%d/%d 確認済み";
+"month.progress.complete" = "完了";

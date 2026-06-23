@@ -124,3 +124,5 @@
 "month.review.complete" = "本月检查完成";
 "month.review.complete.description" = "这个月的照片已经全部检查完成。";
 "cancel" = "取消";
+"month.progress.format" = "已处理 %d/%d";
+"month.progress.complete" = "已完成";
