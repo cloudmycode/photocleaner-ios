@@ -33,6 +33,17 @@ struct PhotoMonthGroup: Identifiable {
     let assets: [PHAsset]
 }
 
+private struct LibrarySnapshot {
+    let imageAssets: [PHAsset]
+    let videoAssets: [PHAsset]
+    let screenshotAssets: [PHAsset]
+    let largeVideoAssets: [PHAsset]
+    let screenRecordingAssets: [PHAsset]
+    let monthGroups: [PhotoMonthGroup]
+    let burstCandidates: [[PHAsset]]
+    let initialBurstGroups: [SimilarAssetGroup]
+}
+
 @MainActor
 final class PhotoLibraryService: NSObject, ObservableObject {
     enum ScanState: Equatable {
@@ -62,8 +73,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     let imageManager = PHCachingImageManager()
 
-    private let fallbackShotInterval: TimeInterval = 3
-    private let fallbackSequenceDuration: TimeInterval = 10
+    nonisolated private static let fallbackShotInterval: TimeInterval = 3
+    nonisolated private static let fallbackSequenceDuration: TimeInterval = 10
     private let analysisCache = SimilarAnalysisCache()
     private let duplicateCache = DuplicateFingerprintCache()
     private let monthlyReviewStore = MonthlyReviewStore()
@@ -103,45 +114,40 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         scanTask = Task { [weak self] in
             guard let self else { return }
             scanState = .loadingLibrary
+            photoCount = 0
+            videoCount = 0
+            screenshotCount = 0
+            screenshotAssets = []
+            videoAssets = []
+            largeVideoAssets = []
+            screenRecordingAssets = []
+            monthGroups = []
             duplicateGroups = []
             burstGroups = []
+            duplicateScanProgress = nil
 
-            let assets = Self.fetchImageAssets()
-            let videos = Self.fetchVideoAssets()
-            photoCount = assets.count
-            videoCount = videos.count
-            screenshotAssets = Array(
-                assets
-                    .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
-                    .reversed()
-            )
-            screenshotCount = screenshotAssets.count
-            videoAssets = Array(videos.reversed())
-            largeVideoAssets = Array(
-                videos
-                    .filter { $0.duration >= 60 }
-                    .reversed()
-            )
-            screenRecordingAssets = Array(
-                videos
-                    .filter { $0.mediaSubtypes.contains(.videoScreenRecording) }
-                    .reversed()
-            )
-            monthGroups = Self.makeMonthGroups(from: assets)
+            let snapshot = await Task.detached(priority: .utility) {
+                Self.makeLibrarySnapshot()
+            }.value
+            guard !Task.isCancelled else { return }
+
+            photoCount = snapshot.imageAssets.count
+            videoCount = snapshot.videoAssets.count
+            screenshotAssets = snapshot.screenshotAssets
+            screenshotCount = snapshot.screenshotAssets.count
+            videoAssets = snapshot.videoAssets
+            largeVideoAssets = snapshot.largeVideoAssets
+            screenRecordingAssets = snapshot.screenRecordingAssets
+            monthGroups = snapshot.monthGroups
+            burstGroups = snapshot.initialBurstGroups
+
             await restoreMonthlyReviewProgress()
-            await scanDuplicates(in: assets)
+            await Task.yield()
 
-            let candidates = Self.continuousShotCandidateGroups(
-                assets: assets,
-                maximumAdjacentInterval: fallbackShotInterval,
-                maximumSequenceDuration: fallbackSequenceDuration
-            )
-            var analyzedBurstGroups = candidates
-                .map(Self.makeBurstGroup)
-                .sorted {
-                    ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
-                }
-            burstGroups = analyzedBurstGroups
+            await scanDuplicates(in: snapshot.imageAssets)
+
+            var analyzedBurstGroups = snapshot.initialBurstGroups
+            let candidates = snapshot.burstCandidates
             scanState = .analyzing(current: 0, total: candidates.count)
 
             var activeCache: [String: CachedSimilarGroup] = [:]
@@ -473,7 +479,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
-    private static func fetchImageAssets() -> [PHAsset] {
+    nonisolated private static func fetchImageAssets() -> [PHAsset] {
         let options = PHFetchOptions()
         options.includeAllBurstAssets = true
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
@@ -486,11 +492,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         return assets
     }
 
-    private static func fetchCount(mediaType: PHAssetMediaType) -> Int {
+    nonisolated private static func fetchCount(mediaType: PHAssetMediaType) -> Int {
         PHAsset.fetchAssets(with: mediaType, options: nil).count
     }
 
-    private static func fetchVideoAssets() -> [PHAsset] {
+    nonisolated private static func fetchVideoAssets() -> [PHAsset] {
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
         let result = PHAsset.fetchAssets(with: .video, options: options)
@@ -502,7 +508,50 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         return assets
     }
 
-    private static func makeMonthGroups(from assets: [PHAsset]) -> [PhotoMonthGroup] {
+    nonisolated private static func makeLibrarySnapshot() -> LibrarySnapshot {
+        let imageAssets = fetchImageAssets()
+        let videos = fetchVideoAssets()
+        let screenshotAssets = Array(
+            imageAssets
+                .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
+                .reversed()
+        )
+        let videoAssets = Array(videos.reversed())
+        let largeVideoAssets = Array(
+            videos
+                .filter { $0.duration >= 60 }
+                .reversed()
+        )
+        let screenRecordingAssets = Array(
+            videos
+                .filter { $0.mediaSubtypes.contains(.videoScreenRecording) }
+                .reversed()
+        )
+        let monthGroups = makeMonthGroups(from: imageAssets)
+        let burstCandidates = continuousShotCandidateGroups(
+            assets: imageAssets,
+            maximumAdjacentInterval: fallbackShotInterval,
+            maximumSequenceDuration: fallbackSequenceDuration
+        )
+        let initialBurstGroups = burstCandidates
+            .map(makeBurstGroup)
+            .sorted {
+                ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+            }
+
+        return LibrarySnapshot(
+            imageAssets: imageAssets,
+            videoAssets: videoAssets,
+            screenshotAssets: screenshotAssets,
+            largeVideoAssets: largeVideoAssets,
+            screenRecordingAssets: screenRecordingAssets,
+            monthGroups: monthGroups,
+            burstCandidates: burstCandidates,
+            initialBurstGroups: initialBurstGroups
+        )
+    }
+
+    nonisolated private static func makeMonthGroups(from assets: [PHAsset]) -> [PhotoMonthGroup] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: assets) { asset in
             calendar.date(
@@ -549,7 +598,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         return Int((Double(asset.pixelWidth) / Double(asset.pixelHeight) * 1000).rounded())
     }
 
-    private static func makeDuplicateGroup(_ assets: [PHAsset]) -> SimilarAssetGroup {
+    nonisolated private static func makeDuplicateGroup(_ assets: [PHAsset]) -> SimilarAssetGroup {
         let sorted = assets.sorted {
             ($0.creationDate ?? .distantPast) < ($1.creationDate ?? .distantPast)
         }
@@ -570,7 +619,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
     }
 
-    private static func makeBurstGroup(_ assets: [PHAsset]) -> SimilarAssetGroup {
+    nonisolated private static func makeBurstGroup(_ assets: [PHAsset]) -> SimilarAssetGroup {
         let sorted = assets.sorted(by: assetDateAscending)
         let keepID = sorted.first(where: \.isFavorite)?.localIdentifier ??
             sorted.max(by: { qualityScore(forMetadata: $0) < qualityScore(forMetadata: $1) })?
@@ -590,7 +639,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
     }
 
-    private static func restoreGroup(
+    nonisolated private static func restoreGroup(
         _ cached: CachedSimilarGroup,
         from assets: [PHAsset]
     ) -> SimilarAssetGroup? {
@@ -615,7 +664,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
     }
 
-    private static func cacheGroup(
+    nonisolated private static func cacheGroup(
         _ group: SimilarAssetGroup?,
         signature: String
     ) -> CachedSimilarGroup {
@@ -631,7 +680,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
     }
 
-    private static func continuousShotCandidateGroups(
+    nonisolated private static func continuousShotCandidateGroups(
         assets: [PHAsset],
         maximumAdjacentInterval: TimeInterval,
         maximumSequenceDuration: TimeInterval
