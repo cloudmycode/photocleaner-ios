@@ -558,6 +558,7 @@ struct CompressResultView: View {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
     @State private var scanSimilar = true
     @State private var diskWarning = false
     @State private var keepOriginal = true
@@ -579,7 +580,15 @@ struct SettingsView: View {
                 }
 
                 SettingsGroup(title: String(localized: "settings.general.security")) {
-                    SettingsNavRow(title: String(localized: "settings.clear.cache"), value: "14.2 MB")
+                    Button {
+                        library.clearAnalysisCache()
+                    } label: {
+                        SettingsNavRow(
+                            title: String(localized: "settings.clear.cache"),
+                            value: formattedCacheSize
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 SettingsGroup(title: String(localized: "settings.support")) {
@@ -602,6 +611,13 @@ struct SettingsView: View {
             .padding(.bottom, 28)
         }
         .background(Color.cleanerBackground)
+    }
+
+    private var formattedCacheSize: String {
+        ByteCountFormatter.string(
+            fromByteCount: library.analysisCacheSize,
+            countStyle: .file
+        )
     }
 }
 

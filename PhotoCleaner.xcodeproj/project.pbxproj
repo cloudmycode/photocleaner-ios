@@ -11,6 +11,7 @@
 		AA0000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000012 /* ContentView.swift */; };
 		AA0000000000000000000003 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000020 /* Localizable.strings */; };
 		AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* PhotoLibraryService.swift */; };
+		AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* SimilarAnalysisCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +23,7 @@
 		AA0000000000000000000016 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		AA0000000000000000000017 /* PhotoCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000018 /* PhotoLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibraryService.swift; sourceTree = "<group>"; };
+		AA0000000000000000000019 /* SimilarAnalysisCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarAnalysisCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +51,7 @@
 				AA0000000000000000000011 /* PhotoCleanerApp.swift */,
 				AA0000000000000000000012 /* ContentView.swift */,
 				AA0000000000000000000018 /* PhotoLibraryService.swift */,
+				AA0000000000000000000019 /* SimilarAnalysisCache.swift */,
 				AA0000000000000000000013 /* Info.plist */,
 				AA0000000000000000000043 /* Resources */,
 			);
@@ -146,6 +149,7 @@
 				AA0000000000000000000001 /* PhotoCleanerApp.swift in Sources */,
 				AA0000000000000000000002 /* ContentView.swift in Sources */,
 				AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */,
+				AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

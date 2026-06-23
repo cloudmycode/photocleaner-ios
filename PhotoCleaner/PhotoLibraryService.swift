@@ -41,11 +41,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var screenshotCount = 0
     @Published private(set) var similarGroups: [SimilarAssetGroup] = []
     @Published private(set) var scanState: ScanState = .idle
+    @Published private(set) var analysisCacheSize: Int64 = 0
 
     let imageManager = PHCachingImageManager()
 
     private let candidateInterval: TimeInterval = 5
     private let similarityThreshold: Float = 0.34
+    private let analysisCache = SimilarAnalysisCache()
     private var scanTask: Task<Void, Never>?
 
     override init() {
@@ -76,6 +78,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         scanTask = Task { [weak self] in
             guard let self else { return }
             scanState = .loadingLibrary
+            similarGroups = []
 
             let assets = Self.fetchImageAssets()
             photoCount = assets.count
@@ -93,9 +96,25 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             scanState = .analyzing(current: 0, total: candidates.count)
 
             var groups: [SimilarAssetGroup] = []
+            var activeCache: [String: CachedSimilarGroup] = [:]
             for (index, candidate) in candidates.enumerated() {
                 guard !Task.isCancelled else { return }
-                if let group = await analyze(candidate) {
+                let signature = SimilarAnalysisSignature.make(for: candidate)
+                let cached = await analysisCache.group(for: signature)
+                let group: SimilarAssetGroup?
+
+                if let cached {
+                    activeCache[signature] = cached
+                    group = Self.restoreGroup(cached, from: candidate)
+                } else {
+                    group = await analyze(candidate)
+                    activeCache[signature] = Self.cacheGroup(
+                        group,
+                        signature: signature
+                    )
+                }
+
+                if let group {
                     groups.append(group)
                     similarGroups = groups.sorted {
                         ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
@@ -104,6 +123,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 scanState = .analyzing(current: index + 1, total: candidates.count)
                 await Task.yield()
             }
+            try? await analysisCache.replace(with: activeCache)
+            analysisCacheSize = await analysisCache.sizeInBytes()
             scanState = .finished
         }
     }
@@ -144,6 +165,15 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             PHAssetChangeRequest.deleteAssets(result)
         }
         refreshLibrary()
+    }
+
+    func clearAnalysisCache() {
+        scanTask?.cancel()
+        Task {
+            try? await analysisCache.clear()
+            analysisCacheSize = 0
+            scanState = .idle
+        }
     }
 
     private func analyze(_ assets: [PHAsset]) async -> SimilarAssetGroup? {
@@ -229,6 +259,47 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     private static func fetchCount(mediaType: PHAssetMediaType) -> Int {
         PHAsset.fetchAssets(with: mediaType, options: nil).count
+    }
+
+    private static func restoreGroup(
+        _ cached: CachedSimilarGroup,
+        from assets: [PHAsset]
+    ) -> SimilarAssetGroup? {
+        guard cached.assets.count >= 2 else { return nil }
+        let assetsByID = Dictionary(
+            uniqueKeysWithValues: assets.map { ($0.localIdentifier, $0) }
+        )
+        let restored = cached.assets.compactMap { item -> SimilarAsset? in
+            guard let asset = assetsByID[item.id] else { return nil }
+            return SimilarAsset(
+                id: item.id,
+                asset: asset,
+                qualityScore: item.qualityScore,
+                isBest: item.isBest
+            )
+        }
+        guard restored.count == cached.assets.count else { return nil }
+        return SimilarAssetGroup(
+            id: restored.map(\.id).sorted().joined(separator: "|"),
+            assets: restored,
+            creationDate: restored.compactMap(\.asset.creationDate).min()
+        )
+    }
+
+    private static func cacheGroup(
+        _ group: SimilarAssetGroup?,
+        signature: String
+    ) -> CachedSimilarGroup {
+        CachedSimilarGroup(
+            signature: signature,
+            assets: group?.assets.map {
+                CachedSimilarAsset(
+                    id: $0.id,
+                    qualityScore: $0.qualityScore,
+                    isBest: $0.isBest
+                )
+            } ?? []
+        )
     }
 
     private static func timeCandidateGroups(
