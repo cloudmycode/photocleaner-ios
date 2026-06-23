@@ -313,6 +313,7 @@ struct MonthlyReviewView: View {
             targetSize: CGSize(width: 880, height: 1100)
         )
         .id(asset.localIdentifier)
+        .frame(maxWidth: .infinity)
         .frame(maxWidth: 440)
         .aspectRatio(0.84, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 22))
@@ -464,8 +465,9 @@ private struct MonthAssetRow: View {
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
+                .frame(width: 24, alignment: .trailing)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .frame(minHeight: 72)
         .background(.white)
     }
@@ -772,6 +774,7 @@ struct AssetSwipeCleanView: View {
                 targetSize: CGSize(width: 880, height: 1100)
             )
             .id(asset.localIdentifier)
+            .frame(maxWidth: .infinity)
             .frame(maxWidth: 440)
             .aspectRatio(0.84, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 22))
@@ -1132,10 +1135,12 @@ private struct CategoryRow: View {
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
+                .frame(width: 24, alignment: .trailing)
         }
+        .padding(.horizontal, 20)
         .frame(minHeight: 56)
         .background(.white)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 20) }
     }
 }
 
@@ -1387,6 +1392,7 @@ private struct SettingsNavRow: View {
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
+                .frame(width: 24, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
