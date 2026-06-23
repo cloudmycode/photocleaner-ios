@@ -974,30 +974,43 @@ private struct SimilarPhotoCard: View {
     let toggle: () -> Void
 
     var body: some View {
-        Button(action: preview) {
-            ZStack(alignment: .topTrailing) {
+        let cardWidth: CGFloat = photo.asset.pixelWidth > photo.asset.pixelHeight ? 142 : 108
+
+        ZStack(alignment: .topTrailing) {
+            Button(action: preview) {
                 PhotoThumbnailView(
                     asset: photo.asset,
                     targetSize: CGSize(width: 132, height: 146)
                 )
-                if photo.isBest {
-                    Image(systemName: "star.fill")
-                        .foregroundStyle(.yellow)
-                        .padding(8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
-                Button(action: toggle) {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(selected ? .white : .white.opacity(0.8), selected ? Color.cleanerBlue : .clear)
-                }
-                .padding(8)
+                .frame(width: cardWidth, height: 146)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .frame(width: photo.asset.pixelWidth > photo.asset.pixelHeight ? 142 : 108, height: 146)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .buttonStyle(.plain)
+
+            if photo.isBest {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.yellow)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
+            }
+
+            Button(action: toggle) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(
+                        selected ? .white : .white.opacity(0.9),
+                        selected ? Color.cleanerBlue : Color.black.opacity(0.25)
+                    )
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+            .padding(.trailing, 2)
         }
-        .buttonStyle(.plain)
+        .frame(width: cardWidth, height: 146)
     }
 }
 
