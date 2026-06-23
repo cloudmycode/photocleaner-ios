@@ -44,97 +44,212 @@ private enum AppTab {
 struct QuickCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
 
-    private let videoItems = CleanerCategory.videoSamples
-    private let albumItems = CleanerCategory.albumSamples
-
     private var photoItems: [CleanerCategory] {
-        CleanerCategory.photoSamples.map { item in
-            switch item.kind {
-            case .similar:
-                return item.with(count: library.similarGroups.reduce(0) { $0 + $1.assets.count })
-            case .screenshot:
-                return item.with(count: library.screenshotCount)
-            case .largeImage:
-                return item.with(count: library.largeImageAssets.count)
-            default:
-                return item
-            }
-        }
+        [
+            CleanerCategory.similar(
+                count: library.similarGroups.reduce(0) { $0 + $1.assets.count }
+            ),
+            CleanerCategory.screenshots(count: library.screenshotAssets.count),
+            CleanerCategory.largeImages(count: library.largeImageAssets.count)
+        ]
+    }
+
+    private var videoItems: [CleanerCategory] {
+        [
+            CleanerCategory.allVideos(count: library.videoAssets.count),
+            CleanerCategory.largeVideos(count: library.largeVideoAssets.count),
+            CleanerCategory.screenRecordings(count: library.screenRecordingAssets.count)
+        ]
     }
 
     var body: some View {
         CleanerScroll {
             CleanerHeader(title: String(localized: "app.name"))
-            StorageCard(label: String(localized: "media.storage"), value: "42.15 GB", description: String(localized: "media.storage.description"))
+            if hasPhotoAccess {
+                StorageCard(
+                    label: String(localized: "library.media"),
+                    value: "\(library.photoCount + library.videoCount)",
+                    description: String.localizedStringWithFormat(
+                        String(localized: "library.summary.format"),
+                        library.photoCount,
+                        library.videoCount
+                    )
+                )
 
-            CleanerSection(title: String(localized: "section.photos")) {
-                ForEach(photoItems) { item in
-                    NavigationLink {
-                        if item.kind == .similar {
-                            SimilarCleanView()
-                        } else if item.kind == .screenshot {
-                            AssetSwipeCleanView(category: item)
-                        } else if item.kind == .largeImage {
-                            AssetSwipeCleanView(category: item)
-                        } else {
-                            SwipeCleanView(category: item)
+                CleanerSection(title: String(localized: "section.photos")) {
+                    ForEach(photoItems) { item in
+                        NavigationLink {
+                            if item.kind == .similar {
+                                SimilarCleanView()
+                            } else {
+                                AssetSwipeCleanView(category: item)
+                            }
+                        } label: {
+                            CategoryRow(item: item)
                         }
-                    } label: {
-                        CategoryRow(item: item)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
 
-            CleanerSection(title: String(localized: "section.videos")) {
-                ForEach(videoItems) { item in
-                    NavigationLink {
-                        SwipeCleanView(category: item)
-                    } label: {
-                        CategoryRow(item: item)
+                CleanerSection(title: String(localized: "section.videos")) {
+                    ForEach(videoItems) { item in
+                        NavigationLink {
+                            AssetSwipeCleanView(category: item)
+                        } label: {
+                            CategoryRow(item: item)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-            }
 
-            CleanerSection(title: String(localized: "section.albums")) {
-                ForEach(albumItems) { item in
-                    CategoryRow(item: item)
+                Text(scanStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .font(.system(size: 42))
+                        .foregroundStyle(Color.cleanerBlue)
+                    Text("photo.access.required")
+                        .font(.headline)
+                    Text("photo.access.description")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("open.settings") {
+                        library.openAppSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-            }
-
-            Text("analysis.complete")
-                .font(.caption)
-                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
+                .padding(32)
+            }
+        }
+        .background(Color.cleanerBackground)
+    }
+
+    private var scanStatus: String {
+        switch library.authorizationStatus {
+        case .denied, .restricted:
+            return String(localized: "photo.access.required")
+        case .notDetermined:
+            return String(localized: "photo.access.requesting")
+        default:
+            if case let .analyzing(current, total) = library.scanState {
+                return String.localizedStringWithFormat(
+                    String(localized: "similar.analyzing.format"),
+                    current,
+                    total
+                )
+            }
+            return String(localized: "analysis.complete")
+        }
+    }
+
+    private var hasPhotoAccess: Bool {
+        library.authorizationStatus == .authorized ||
+            library.authorizationStatus == .limited
+    }
+}
+
+struct AlbumsView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+
+    var body: some View {
+        CleanerScroll {
+            CleanerHeader(title: String(localized: "tab.albums"))
+            StorageCard(
+                label: String(localized: "total.photos"),
+                value: "\(library.photoCount)",
+                description: String(localized: "total.photos.description")
+            )
+
+            if library.monthGroups.isEmpty {
+                Text("library.reading")
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 40)
+            } else {
+                ForEach(library.monthGroups) { month in
+                    CleanerSection(title: month.date.formatted(.dateTime.year())) {
+                        NavigationLink {
+                            AssetCollectionView(
+                                title: month.date.formatted(.dateTime.year().month(.wide)),
+                                assets: month.assets
+                            )
+                        } label: {
+                            MonthAssetRow(group: month)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .background(Color.cleanerBackground)
     }
 }
 
-struct AlbumsView: View {
-    private let months = AlbumMonth.samples
+struct AssetCollectionView: View {
+    let title: String
+    let assets: [PHAsset]
+
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: 2),
+        count: 3
+    )
 
     var body: some View {
-        CleanerScroll {
-            CleanerHeader(title: String(localized: "tab.albums"))
-            StorageCard(label: String(localized: "total.photos"), value: String(localized: "total.photos.value"), description: String(localized: "total.photos.description"))
-
-            CleanerSection(title: "2026") {
-                ForEach(months) { month in
-                    AlbumRow(month: month)
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 2) {
+                ForEach(assets, id: \.localIdentifier) { asset in
+                    PhotoThumbnailView(
+                        asset: asset,
+                        targetSize: CGSize(width: 220, height: 220)
+                    )
+                    .aspectRatio(1, contentMode: .fill)
                 }
             }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(Color.cleanerBackground)
+    }
+}
 
-            Text("albums.footer")
+private struct MonthAssetRow: View {
+    let group: PhotoMonthGroup
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let first = group.assets.first {
+                PhotoThumbnailView(
+                    asset: first,
+                    targetSize: CGSize(width: 112, height: 112)
+                )
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(group.date.formatted(.dateTime.month(.wide)))
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "items.count.format"),
+                        group.assets.count
+                    )
+                )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.vertical, 30)
-                .frame(maxWidth: .infinity)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
         }
-        .background(Color.cleanerBackground)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 72)
+        .background(.white)
     }
 }
 
@@ -323,6 +438,12 @@ struct AssetSwipeCleanView: View {
             return library.screenshotAssets
         case .largeImage:
             return library.largeImageAssets
+        case .video:
+            return library.videoAssets
+        case .largeVideo:
+            return library.largeVideoAssets
+        case .recording:
+            return library.screenRecordingAssets
         default:
             return []
         }
@@ -535,260 +656,42 @@ struct AssetSwipeCleanView: View {
     }
 }
 
-struct SwipeCleanView: View {
-    let category: CleanerCategory
-    @State private var index = 0
-    @State private var offset: CGSize = .zero
-    @State private var showInfo = false
-
-    private let cards = SwipePhoto.samples
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("\(index + 1)/\(cards.count)")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("undo") {
-                        index = max(0, index - 1)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-
-                ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(cards[index].gradient)
-                        .overlay {
-                            VStack(spacing: 14) {
-                                Image(systemName: category.icon)
-                                    .font(.system(size: 46, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.92))
-                                Text(cards[index].title)
-                                    .font(.title2.weight(.bold))
-                                    .multilineTextAlignment(.center)
-                                    .foregroundStyle(.white)
-                                Text(cards[index].subtitle)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.white.opacity(0.72))
-                            }
-                            .padding(24)
-                        }
-                        .frame(maxWidth: 440)
-                        .aspectRatio(0.84, contentMode: .fit)
-                        .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
-                        .offset(offset)
-                        .rotationEffect(.degrees(Double(offset.width / 18)))
-                        .gesture(
-                            DragGesture()
-                                .onChanged { offset = $0.translation }
-                                .onEnded { value in
-                                    if abs(value.translation.width) > 110 {
-                                        advance()
-                                    }
-                                    offset = .zero
-                                }
-                        )
-
-                    Button {
-                        showInfo.toggle()
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.headline)
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .padding(18)
-                }
-                .padding(.horizontal, 22)
-                .padding(.top, 18)
-
-                if showInfo {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("2026-06-05 14:22", systemImage: "calendar")
-                        Label("Beijing Haidian", systemImage: "location")
-                        Label("4.8 MB (4032 x 3024)", systemImage: "internaldrive")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
-                    .padding(.horizontal, 22)
-                    .padding(.top, 14)
-                }
-                Color.clear.frame(height: 20)
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            swipeActions
-            .padding(20)
-            .background(.white)
-            .overlay(alignment: .top) { Divider() }
-        }
-        .navigationTitle(category.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .background(Color.cleanerBackground)
-    }
-
-    private func advance() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
-            index = (index + 1) % cards.count
-        }
-    }
-
-    private var swipeActions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                actionIcons
-                keepButton
-            }
-
-            VStack(spacing: 12) {
-                HStack {
-                    actionIcons
-                }
-                keepButton
-            }
-        }
-    }
-
-    private var actionIcons: some View {
-        Group {
-            ActionCircle(systemName: "trash", tint: .red) { advance() }
-            ActionCircle(systemName: "square.and.arrow.up", tint: .cleanerBlue) {}
-            ActionCircle(systemName: "heart", tint: .pink) {}
-            ActionCircle(systemName: "square.grid.2x2", tint: .gray) {}
-        }
-    }
-
-    private var keepButton: some View {
-        Button("keep") { advance() }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
 struct VideoCompressView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+
+    private var categories: [CleanerCategory] {
+        [
+            CleanerCategory.allVideos(count: library.videoAssets.count),
+            CleanerCategory.largeVideos(count: library.largeVideoAssets.count),
+            CleanerCategory.screenRecordings(count: library.screenRecordingAssets.count)
+        ]
+    }
+
     var body: some View {
         CleanerScroll {
             CleanerHeader(title: String(localized: "tab.compress"))
-            StorageCard(label: String(localized: "media.storage"), value: "29.92 GB", description: String(localized: "compress.summary.description"))
+            StorageCard(
+                label: String(localized: "section.videos"),
+                value: "\(library.videoCount)",
+                description: String(localized: "compress.summary.description")
+            )
 
             CleanerSection(title: String(localized: "section.videos")) {
-                ForEach(VideoBucket.samples) { bucket in
+                ForEach(categories) { category in
                     NavigationLink {
-                        CompressDetailView(bucket: bucket)
+                        AssetSwipeCleanView(category: category)
                     } label: {
-                        VideoBucketRow(bucket: bucket)
+                        CategoryRow(item: category)
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            CleanerSection(title: String(localized: "batch.compress")) {
-                VideoBucketRow(bucket: VideoBucket(title: String(localized: "compress.recommended"), count: "57", size: "11.06 GB", color: .cleanerGreen, icon: "wand.and.stars"))
-            }
-
-            Text("compress.footer")
+            Text("compress.not.available")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.vertical, 28)
-        }
-        .background(Color.cleanerBackground)
-    }
-}
-
-struct CompressDetailView: View {
-    let bucket: VideoBucket
-    @State private var quality: Double = 0.68
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(LinearGradient(colors: [.black.opacity(0.9), bucket.color.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .overlay {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 64))
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                    .aspectRatio(16 / 10, contentMode: .fit)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-
-                VStack(spacing: 14) {
-                    HStack {
-                        Text("compress.quality")
-                        Spacer()
-                        Text("\(Int(quality * 100))%")
-                            .foregroundStyle(Color.cleanerBlue)
-                            .fontWeight(.bold)
-                    }
-                    Slider(value: $quality, in: 0.35...0.9)
-                    InfoPair(title: String(localized: "original.size"), value: bucket.size)
-                    InfoPair(title: String(localized: "estimated.size"), value: "4.72 GB")
-                    InfoPair(title: String(localized: "space.saved"), value: "6.34 GB")
-                }
-                .padding(18)
-                .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
-                .padding(.horizontal, 20)
-            }
-            .padding(.bottom, 16)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            NavigationLink {
-                CompressResultView()
-            } label: {
-                Text("start.compress")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
-            }
-            .padding(20)
-            .background(.white)
-            .overlay(alignment: .top) { Divider() }
-        }
-        .navigationTitle(bucket.title)
-        .background(Color.cleanerBackground)
-    }
-}
-
-struct CompressResultView: View {
-    var body: some View {
-        VStack(spacing: 18) {
-            Spacer()
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 74))
-                .foregroundStyle(Color.cleanerGreen)
-            Text("compress.complete")
-                .font(.title.bold())
-            Text("compress.complete.description")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            VStack(spacing: 12) {
-                InfoPair(title: String(localized: "original.size"), value: "11.06 GB")
-                InfoPair(title: String(localized: "compressed.size"), value: "4.72 GB")
-                InfoPair(title: String(localized: "space.saved"), value: "6.34 GB")
-            }
-            .padding(18)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
-            .padding(20)
-            Spacer()
         }
         .background(Color.cleanerBackground)
     }
@@ -970,57 +873,16 @@ private struct CategoryRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(item.size)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.cleanerText)
+            if !item.size.isEmpty {
+                Text(item.size)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.cleanerText)
+            }
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
         }
         .frame(minHeight: 56)
-        .background(.white)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
-    }
-}
-
-private struct AlbumRow: View {
-    let month: AlbumMonth
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(month.organized ? Color.cleanerGreen : Color.gray.opacity(0.4))
-                .frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(month.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(month.organized ? .secondary : Color.cleanerText)
-                Text(month.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if !month.organized {
-                    ProgressView(value: month.progress)
-                        .tint(.cleanerBlue)
-                        .frame(width: 130)
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 5) {
-                Text(month.size)
-                    .font(.subheadline.weight(.semibold))
-                if month.organized {
-                    Label("organized", systemImage: "checkmark")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color.cleanerGreen)
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 72)
         .background(.white)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
     }
@@ -1220,38 +1082,6 @@ private struct ActionCircle: View {
     }
 }
 
-private struct VideoBucketRow: View {
-    let bucket: VideoBucket
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Rectangle()
-                .fill(bucket.color)
-                .frame(width: 4)
-            Image(systemName: bucket.icon)
-                .font(.title3)
-                .foregroundStyle(bucket.color)
-                .frame(width: 30)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(bucket.title)
-                    .font(.subheadline.weight(.semibold))
-                Text(String.localizedStringWithFormat(String(localized: "videos.count.format"), bucket.count))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(bucket.size)
-                .font(.subheadline.weight(.semibold))
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.tertiary)
-        }
-        .frame(minHeight: 60)
-        .background(.white)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
-    }
-}
-
 private struct SettingsGroup<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
@@ -1333,11 +1163,11 @@ private struct InfoPair: View {
 }
 
 struct CleanerCategory: Identifiable {
-    enum Kind {
+    enum Kind: Hashable {
         case duplicate, similar, screenshot, lowQuality, largeImage, video, largeVideo, recording, emptyAlbum
     }
 
-    let id = UUID()
+    var id: Kind { kind }
     let title: String
     let count: Int
     let size: String
@@ -1356,91 +1186,71 @@ struct CleanerCategory: Identifiable {
         )
     }
 
-    static let photoSamples = [
-        CleanerCategory(title: String(localized: "category.duplicates"), count: 124, size: "1.21 GB", color: .orange, icon: "rectangle.on.rectangle", kind: .duplicate),
-        CleanerCategory(title: String(localized: "category.similar"), count: 1957, size: "5.31 GB", color: .cleanerBlue, icon: "photo.stack", kind: .similar),
-        CleanerCategory(title: String(localized: "category.screenshots"), count: 412, size: "50.8 MB", color: .red, icon: "iphone", kind: .screenshot),
-        CleanerCategory(title: String(localized: "category.low.quality"), count: 6, size: "1.4 MB", color: .purple, icon: "exclamationmark.triangle", kind: .lowQuality),
-        CleanerCategory(title: String(localized: "category.large.images"), count: 85, size: "2.52 GB", color: .cleanerGreen, icon: "photo", kind: .largeImage)
-    ]
+    static func similar(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.similar"),
+            count: count,
+            size: "",
+            color: .cleanerBlue,
+            icon: "photo.stack",
+            kind: .similar
+        )
+    }
 
-    static let videoSamples = [
-        CleanerCategory(title: String(localized: "category.all.videos"), count: 1167, size: "29.92 GB", color: .cyan, icon: "video", kind: .video),
-        CleanerCategory(title: String(localized: "category.large.videos"), count: 57, size: "11.06 GB", color: .orange, icon: "video.fill", kind: .largeVideo),
-        CleanerCategory(title: String(localized: "category.screen.recordings"), count: 3, size: "76.2 MB", color: .gray, icon: "record.circle", kind: .recording)
-    ]
+    static func screenshots(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.screenshots"),
+            count: count,
+            size: "",
+            color: .red,
+            icon: "iphone",
+            kind: .screenshot
+        )
+    }
 
-    static let albumSamples = [
-        CleanerCategory(title: String(localized: "category.empty.albums"), count: 10, size: "0 KB", color: .purple, icon: "folder", kind: .emptyAlbum)
-    ]
-}
+    static func largeImages(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.large.images"),
+            count: count,
+            size: "",
+            color: .cleanerGreen,
+            icon: "photo",
+            kind: .largeImage
+        )
+    }
 
-private struct AlbumMonth: Identifiable {
-    let id = UUID()
-    let title: String
-    let subtitle: String
-    let size: String
-    let progress: Double
-    let organized: Bool
+    static func allVideos(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.all.videos"),
+            count: count,
+            size: "",
+            color: .cyan,
+            icon: "video",
+            kind: .video
+        )
+    }
 
-    static let samples = [
-        AlbumMonth(title: String(localized: "month.june"), subtitle: String(localized: "month.june.subtitle"), size: "512.0 MB", progress: 0.05, organized: false),
-        AlbumMonth(title: String(localized: "month.may"), subtitle: String(localized: "month.may.subtitle"), size: "480.5 MB", progress: 1, organized: true),
-        AlbumMonth(title: String(localized: "month.april"), subtitle: String(localized: "month.april.subtitle"), size: "821.4 MB", progress: 0.35, organized: false),
-        AlbumMonth(title: String(localized: "month.march"), subtitle: String(localized: "month.march.subtitle"), size: "690.2 MB", progress: 0.62, organized: false)
-    ]
-}
+    static func largeVideos(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.large.videos"),
+            count: count,
+            size: "",
+            color: .orange,
+            icon: "video.fill",
+            kind: .largeVideo
+        )
+    }
 
-private struct SimilarPhoto: Identifiable {
-    let id: String
-    let title: String
-    let shortTitle: String
-    let time: String
-    let location: String
-    let model: String
-    let size: String
-    let best: Bool
-    let selected: Bool
-    let landscape: Bool
-    let gradient: LinearGradient
-
-    static let samples = [
-        SimilarPhoto(id: "pic-1", title: String(localized: "photo.baby.best"), shortTitle: String(localized: "photo.portrait.one"), time: "2026-06-01 12:30", location: "Beijing", model: "iPhone 15 Pro", size: "4.2 MB", best: true, selected: false, landscape: false, gradient: .photoWarm),
-        SimilarPhoto(id: "pic-2", title: String(localized: "photo.baby.blink"), shortTitle: String(localized: "photo.portrait.two"), time: "2026-06-01 12:31", location: "Beijing", model: "iPhone 15 Pro", size: "3.8 MB", best: false, selected: true, landscape: false, gradient: .photoSoft),
-        SimilarPhoto(id: "pic-3", title: String(localized: "photo.sunset.best"), shortTitle: String(localized: "photo.landscape.one"), time: "2026-05-20 19:05", location: "Sanya", model: "Xiaomi 14 Ultra", size: "6.5 MB", best: true, selected: false, landscape: true, gradient: .photoSunset),
-        SimilarPhoto(id: "pic-4", title: String(localized: "photo.sunset.over"), shortTitle: String(localized: "photo.landscape.two"), time: "2026-05-20 19:05", location: "Sanya", model: "Xiaomi 14 Ultra", size: "6.1 MB", best: false, selected: true, landscape: true, gradient: .photoSea),
-        SimilarPhoto(id: "pic-5", title: String(localized: "photo.sunset.blur"), shortTitle: String(localized: "photo.landscape.three"), time: "2026-05-20 19:06", location: "Sanya", model: "Xiaomi 14 Ultra", size: "4.9 MB", best: false, selected: true, landscape: true, gradient: .photoBlue),
-        SimilarPhoto(id: "pic-6", title: String(localized: "photo.skate.one"), shortTitle: String(localized: "photo.burst.one"), time: "2026-05-10", location: "Chengdu", model: "iPhone 15", size: "4.1 MB", best: true, selected: false, landscape: false, gradient: .photoStreet),
-        SimilarPhoto(id: "pic-7", title: String(localized: "photo.skate.two"), shortTitle: String(localized: "photo.burst.two"), time: "2026-05-10", location: "Chengdu", model: "iPhone 15", size: "4.0 MB", best: false, selected: true, landscape: false, gradient: .photoNight)
-    ]
-}
-
-private struct SwipePhoto {
-    let title: String
-    let subtitle: String
-    let gradient: LinearGradient
-
-    static let samples = [
-        SwipePhoto(title: String(localized: "swipe.card.id"), subtitle: "IMG_1021.JPG", gradient: .photoWarm),
-        SwipePhoto(title: String(localized: "photo.baby.blink"), subtitle: "IMG_1022.JPG", gradient: .photoSoft),
-        SwipePhoto(title: String(localized: "photo.sunset.blur"), subtitle: "IMG_1023.JPG", gradient: .photoSunset),
-        SwipePhoto(title: String(localized: "photo.skate.two"), subtitle: "IMG_1024.JPG", gradient: .photoStreet)
-    ]
-}
-
-struct VideoBucket: Identifiable {
-    let id = UUID()
-    let title: String
-    let count: String
-    let size: String
-    let color: Color
-    let icon: String
-
-    static let samples = [
-        VideoBucket(title: String(localized: "category.all.videos"), count: "1,167", size: "29.92 GB", color: .cleanerBlue, icon: "video"),
-        VideoBucket(title: String(localized: "category.large.videos"), count: "57", size: "11.06 GB", color: .orange, icon: "externaldrive.badge.exclamationmark"),
-        VideoBucket(title: String(localized: "category.screen.recordings"), count: "3", size: "76.2 MB", color: .purple, icon: "record.circle")
-    ]
+    static func screenRecordings(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.screen.recordings"),
+            count: count,
+            size: "",
+            color: .gray,
+            icon: "record.circle",
+            kind: .recording
+        )
+    }
 }
 
 private extension Color {
@@ -1450,14 +1260,4 @@ private extension Color {
     static let cleanerCard = Color(red: 0.965, green: 0.973, blue: 0.98)
     static let cleanerBorder = Color(red: 0.882, green: 0.894, blue: 0.91)
     static let cleanerText = Color(red: 0.122, green: 0.137, blue: 0.157)
-}
-
-private extension LinearGradient {
-    static let photoWarm = LinearGradient(colors: [.orange, .brown], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let photoSoft = LinearGradient(colors: [.pink, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let photoSunset = LinearGradient(colors: [.yellow, .orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let photoSea = LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let photoBlue = LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let photoStreet = LinearGradient(colors: [.green, .black], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let photoNight = LinearGradient(colors: [.gray, .black], startPoint: .topLeading, endPoint: .bottomTrailing)
 }

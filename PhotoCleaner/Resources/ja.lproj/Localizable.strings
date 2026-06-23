@@ -104,3 +104,8 @@
 "cleanup.complete" = "整理完了";
 "cleanup.complete.description" = "このカテゴリの写真をすべて確認しました。";
 "operation.failed" = "操作に失敗しました";
+"library.media" = "ライブラリ内のメディア";
+"library.summary.format" = "写真 %d 枚、動画 %d 本";
+"photo.access.requesting" = "写真へのアクセスを要求中";
+"compress.not.available" = "動画圧縮はまだ有効ではありません。上記の件数とプレビューは実際の写真ライブラリのデータです。";
+"open.settings" = "設定を開く";

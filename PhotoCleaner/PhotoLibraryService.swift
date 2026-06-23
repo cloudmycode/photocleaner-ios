@@ -25,6 +25,12 @@ struct SimilarAssetGroup: Identifiable {
     let creationDate: Date?
 }
 
+struct PhotoMonthGroup: Identifiable {
+    let id: String
+    let date: Date
+    let assets: [PHAsset]
+}
+
 @MainActor
 final class PhotoLibraryService: NSObject, ObservableObject {
     enum ScanState: Equatable {
@@ -41,6 +47,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var screenshotCount = 0
     @Published private(set) var screenshotAssets: [PHAsset] = []
     @Published private(set) var largeImageAssets: [PHAsset] = []
+    @Published private(set) var videoAssets: [PHAsset] = []
+    @Published private(set) var largeVideoAssets: [PHAsset] = []
+    @Published private(set) var screenRecordingAssets: [PHAsset] = []
+    @Published private(set) var monthGroups: [PhotoMonthGroup] = []
     @Published private(set) var similarGroups: [SimilarAssetGroup] = []
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
@@ -64,6 +74,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     func start() {
         Task {
+            authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
             if authorizationStatus == .notDetermined {
                 authorizationStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             }
@@ -75,6 +86,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
     func refreshLibrary() {
         scanTask?.cancel()
         scanTask = Task { [weak self] in
@@ -83,8 +99,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             similarGroups = []
 
             let assets = Self.fetchImageAssets()
+            let videos = Self.fetchVideoAssets()
             photoCount = assets.count
-            videoCount = Self.fetchCount(mediaType: .video)
+            videoCount = videos.count
             screenshotAssets = Array(
                 assets
                     .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
@@ -96,6 +113,18 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                     .reversed()
             )
             screenshotCount = screenshotAssets.count
+            videoAssets = Array(videos.reversed())
+            largeVideoAssets = Array(
+                videos
+                    .filter { $0.duration >= 60 }
+                    .reversed()
+            )
+            screenRecordingAssets = Array(
+                videos
+                    .filter { $0.mediaSubtypes.contains(.videoScreenRecording) }
+                    .reversed()
+            )
+            monthGroups = Self.makeMonthGroups(from: assets)
 
             let candidates = Self.timeCandidateGroups(
                 assets: assets,
@@ -274,6 +303,36 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     private static func fetchCount(mediaType: PHAssetMediaType) -> Int {
         PHAsset.fetchAssets(with: mediaType, options: nil).count
+    }
+
+    private static func fetchVideoAssets() -> [PHAsset] {
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+        let result = PHAsset.fetchAssets(with: .video, options: options)
+        var assets: [PHAsset] = []
+        assets.reserveCapacity(result.count)
+        result.enumerateObjects { asset, _, _ in
+            assets.append(asset)
+        }
+        return assets
+    }
+
+    private static func makeMonthGroups(from assets: [PHAsset]) -> [PhotoMonthGroup] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: assets) { asset in
+            calendar.date(
+                from: calendar.dateComponents([.year, .month], from: asset.creationDate ?? .distantPast)
+            ) ?? .distantPast
+        }
+        return grouped
+            .map { date, assets in
+                PhotoMonthGroup(
+                    id: String(date.timeIntervalSince1970),
+                    date: date,
+                    assets: Array(assets.reversed())
+                )
+            }
+            .sorted { $0.date > $1.date }
     }
 
     private static func restoreGroup(

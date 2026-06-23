@@ -104,3 +104,8 @@
 "cleanup.complete" = "清理完成";
 "cleanup.complete.description" = "这个分类中的照片已经全部检查完成。";
 "operation.failed" = "操作失败";
+"library.media" = "相册媒体";
+"library.summary.format" = "%d 张照片，%d 个视频";
+"photo.access.requesting" = "正在请求相册权限";
+"compress.not.available" = "视频压缩功能尚未启用，上方数量和预览均来自真实系统相册。";
+"open.settings" = "打开系统设置";
