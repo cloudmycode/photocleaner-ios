@@ -101,3 +101,6 @@
 "similar.analyzing.format" = "正在分析相似照片 %d/%d";
 "library.reading" = "正在读取相册";
 "location.available" = "包含位置信息";
+"cleanup.complete" = "清理完成";
+"cleanup.complete.description" = "这个分类中的照片已经全部检查完成。";
+"operation.failed" = "操作失败";

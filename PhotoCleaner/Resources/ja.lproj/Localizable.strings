@@ -101,3 +101,6 @@
 "similar.analyzing.format" = "類似写真を解析中 %d/%d";
 "library.reading" = "写真ライブラリを読み込み中";
 "location.available" = "位置情報あり";
+"cleanup.complete" = "整理完了";
+"cleanup.complete.description" = "このカテゴリの写真をすべて確認しました。";
+"operation.failed" = "操作に失敗しました";

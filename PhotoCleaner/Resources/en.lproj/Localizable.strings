@@ -101,3 +101,6 @@
 "similar.analyzing.format" = "Analyzing similar photos %d/%d";
 "library.reading" = "Reading photo library";
 "location.available" = "Location available";
+"cleanup.complete" = "Cleanup Complete";
+"cleanup.complete.description" = "You have reviewed all photos in this category.";
+"operation.failed" = "Operation Failed";

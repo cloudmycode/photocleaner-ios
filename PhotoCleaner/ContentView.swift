@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 
 struct ContentView: View {
@@ -53,6 +54,8 @@ struct QuickCleanView: View {
                 return item.with(count: library.similarGroups.reduce(0) { $0 + $1.assets.count })
             case .screenshot:
                 return item.with(count: library.screenshotCount)
+            case .largeImage:
+                return item.with(count: library.largeImageAssets.count)
             default:
                 return item
             }
@@ -69,6 +72,10 @@ struct QuickCleanView: View {
                     NavigationLink {
                         if item.kind == .similar {
                             SimilarCleanView()
+                        } else if item.kind == .screenshot {
+                            AssetSwipeCleanView(category: item)
+                        } else if item.kind == .largeImage {
+                            AssetSwipeCleanView(category: item)
                         } else {
                             SwipeCleanView(category: item)
                         }
@@ -293,6 +300,236 @@ struct SimilarCleanView: View {
                 selectedIDs.subtract(identifiers)
             } catch {
                 deletionError = error.localizedDescription
+            }
+        }
+    }
+}
+
+struct AssetSwipeCleanView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let category: CleanerCategory
+
+    @State private var index = 0
+    @State private var offset: CGSize = .zero
+    @State private var showInfo = false
+    @State private var excludedIDs = Set<String>()
+    @State private var history: [String] = []
+    @State private var favoriteOverrides: [String: Bool] = [:]
+    @State private var operationError: String?
+
+    private var sourceAssets: [PHAsset] {
+        switch category.kind {
+        case .screenshot:
+            return library.screenshotAssets
+        case .largeImage:
+            return library.largeImageAssets
+        default:
+            return []
+        }
+    }
+
+    private var assets: [PHAsset] {
+        sourceAssets.filter { !excludedIDs.contains($0.localIdentifier) }
+    }
+
+    private var currentAsset: PHAsset? {
+        guard assets.indices.contains(index) else { return nil }
+        return assets[index]
+    }
+
+    var body: some View {
+        Group {
+            if let asset = currentAsset {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        toolbar
+                        photoCard(asset)
+                        if showInfo {
+                            assetInfo(asset)
+                        }
+                        Color.clear.frame(height: 20)
+                    }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    actionBar(asset)
+                }
+            } else {
+                ContentUnavailableView(
+                    "cleanup.complete",
+                    systemImage: "checkmark.circle",
+                    description: Text("cleanup.complete.description")
+                )
+            }
+        }
+        .navigationTitle(category.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(Color.cleanerBackground)
+        .alert("operation.failed", isPresented: Binding(
+            get: { operationError != nil },
+            set: { if !$0 { operationError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(operationError ?? "")
+        }
+        .onChange(of: assets.map(\.localIdentifier)) {
+            index = min(index, max(assets.count - 1, 0))
+        }
+    }
+
+    private var toolbar: some View {
+        HStack {
+            Text("\(min(index + 1, assets.count))/\(assets.count)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("undo") {
+                undo()
+            }
+            .font(.subheadline.weight(.semibold))
+            .disabled(history.isEmpty)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+    }
+
+    private func photoCard(_ asset: PHAsset) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 880, height: 1100)
+            )
+            .id(asset.localIdentifier)
+            .frame(maxWidth: 440)
+            .aspectRatio(0.84, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+            .offset(offset)
+            .rotationEffect(.degrees(Double(offset.width / 18)))
+            .gesture(
+                DragGesture()
+                    .onChanged { offset = $0.translation }
+                    .onEnded { value in
+                        if value.translation.width < -110 {
+                            delete(asset)
+                        } else if value.translation.width > 110 {
+                            keep(asset)
+                        }
+                        offset = .zero
+                    }
+            )
+
+            Button {
+                showInfo.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.headline)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .padding(18)
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 18)
+    }
+
+    private func assetInfo(_ asset: PHAsset) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(
+                asset.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "-",
+                systemImage: "calendar"
+            )
+            Label(
+                "\(asset.pixelWidth) x \(asset.pixelHeight)",
+                systemImage: "photo"
+            )
+            if asset.location != nil {
+                Label("location.available", systemImage: "location")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
+        .padding(.horizontal, 22)
+        .padding(.top, 14)
+    }
+
+    private func actionBar(_ asset: PHAsset) -> some View {
+        HStack(spacing: 14) {
+            ActionCircle(systemName: "trash", tint: .red) {
+                delete(asset)
+            }
+            ActionCircle(
+                systemName: isFavorite(asset) ? "heart.fill" : "heart",
+                tint: .pink
+            ) {
+                toggleFavorite(asset)
+            }
+            Button("keep") {
+                keep(asset)
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(20)
+        .background(.white)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func keep(_ asset: PHAsset) {
+        history.append(asset.localIdentifier)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+            if index < assets.count - 1 {
+                index += 1
+            } else {
+                excludedIDs.insert(asset.localIdentifier)
+                index = min(index, max(assets.count - 1, 0))
+            }
+        }
+    }
+
+    private func delete(_ asset: PHAsset) {
+        let id = asset.localIdentifier
+        Task {
+            do {
+                try await library.deleteAssets(with: Set([id]))
+                excludedIDs.insert(id)
+                index = min(index, max(assets.count - 1, 0))
+            } catch {
+                operationError = error.localizedDescription
+            }
+        }
+    }
+
+    private func undo() {
+        guard let id = history.popLast() else { return }
+        if excludedIDs.remove(id) != nil,
+           let restoredIndex = assets.firstIndex(where: { $0.localIdentifier == id }) {
+            index = restoredIndex
+        } else {
+            index = max(0, index - 1)
+        }
+    }
+
+    private func isFavorite(_ asset: PHAsset) -> Bool {
+        favoriteOverrides[asset.localIdentifier] ?? asset.isFavorite
+    }
+
+    private func toggleFavorite(_ asset: PHAsset) {
+        let newValue = !isFavorite(asset)
+        favoriteOverrides[asset.localIdentifier] = newValue
+        Task {
+            do {
+                try await library.setFavorite(newValue, for: asset)
+            } catch {
+                favoriteOverrides[asset.localIdentifier] = asset.isFavorite
+                operationError = error.localizedDescription
             }
         }
     }

@@ -39,6 +39,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var photoCount = 0
     @Published private(set) var videoCount = 0
     @Published private(set) var screenshotCount = 0
+    @Published private(set) var screenshotAssets: [PHAsset] = []
+    @Published private(set) var largeImageAssets: [PHAsset] = []
     @Published private(set) var similarGroups: [SimilarAssetGroup] = []
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
@@ -83,11 +85,17 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             let assets = Self.fetchImageAssets()
             photoCount = assets.count
             videoCount = Self.fetchCount(mediaType: .video)
-            screenshotCount = assets.reduce(into: 0) { count, asset in
-                if asset.mediaSubtypes.contains(.photoScreenshot) {
-                    count += 1
-                }
-            }
+            screenshotAssets = Array(
+                assets
+                    .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
+                    .reversed()
+            )
+            largeImageAssets = Array(
+                assets
+                    .filter { $0.pixelWidth * $0.pixelHeight >= 12_000_000 }
+                    .reversed()
+            )
+            screenshotCount = screenshotAssets.count
 
             let candidates = Self.timeCandidateGroups(
                 assets: assets,
@@ -165,6 +173,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             PHAssetChangeRequest.deleteAssets(result)
         }
         refreshLibrary()
+    }
+
+    func setFavorite(_ isFavorite: Bool, for asset: PHAsset) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetChangeRequest(for: asset)
+            request.isFavorite = isFavorite
+        }
     }
 
     func clearAnalysisCache() {
