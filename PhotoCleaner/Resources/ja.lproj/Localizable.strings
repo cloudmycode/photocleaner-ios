@@ -93,3 +93,11 @@
 "settings.share" = "アプリを共有";
 "settings.privacy" = "プライバシーポリシー";
 "settings.version" = "現在のバージョン";
+"delete.failed" = "削除できません";
+"photo.access.required" = "写真へのアクセスが必要です";
+"photo.access.description" = "類似写真を検索するには、設定で写真へのアクセスを許可してください。";
+"similar.empty" = "類似写真はありません";
+"similar.empty.description" = "撮影時刻が近く、画像が類似する写真グループは見つかりませんでした。";
+"similar.analyzing.format" = "類似写真を解析中 %d/%d";
+"library.reading" = "写真ライブラリを読み込み中";
+"location.available" = "位置情報あり";

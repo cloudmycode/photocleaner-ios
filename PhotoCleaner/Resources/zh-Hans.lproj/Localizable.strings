@@ -93,3 +93,11 @@
 "settings.share" = "分享应用";
 "settings.privacy" = "隐私协议";
 "settings.version" = "当前版本";
+"delete.failed" = "无法删除";
+"photo.access.required" = "需要相册权限";
+"photo.access.description" = "请在系统设置中允许访问照片，以查找相似照片。";
+"similar.empty" = "未发现相似照片";
+"similar.empty.description" = "没有找到拍摄时间接近且画面相似的照片组。";
+"similar.analyzing.format" = "正在分析相似照片 %d/%d";
+"library.reading" = "正在读取相册";
+"location.available" = "包含位置信息";

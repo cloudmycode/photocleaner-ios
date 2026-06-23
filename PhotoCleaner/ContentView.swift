@@ -41,9 +41,23 @@ private enum AppTab {
 }
 
 struct QuickCleanView: View {
-    private let photoItems = CleanerCategory.photoSamples
+    @EnvironmentObject private var library: PhotoLibraryService
+
     private let videoItems = CleanerCategory.videoSamples
     private let albumItems = CleanerCategory.albumSamples
+
+    private var photoItems: [CleanerCategory] {
+        CleanerCategory.photoSamples.map { item in
+            switch item.kind {
+            case .similar:
+                return item.with(count: library.similarGroups.reduce(0) { $0 + $1.assets.count })
+            case .screenshot:
+                return item.with(count: library.screenshotCount)
+            default:
+                return item
+            }
+        }
+    }
 
     var body: some View {
         CleanerScroll {
@@ -118,8 +132,10 @@ struct AlbumsView: View {
 }
 
 struct SimilarCleanView: View {
-    @State private var selectedIDs = Set<String>(SimilarPhoto.samples.filter(\.selected).map(\.id))
-    @State private var previewPhoto: SimilarPhoto?
+    @EnvironmentObject private var library: PhotoLibraryService
+    @State private var selectedIDs = Set<String>()
+    @State private var previewPhoto: SimilarAsset?
+    @State private var deletionError: String?
 
     private var selectedCount: Int { selectedIDs.count }
 
@@ -151,14 +167,20 @@ struct SimilarCleanView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
 
-                SimilarGroup(title: String(localized: "similar.group.portrait"), photos: Array(SimilarPhoto.samples.prefix(2)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
-                SimilarGroup(title: String(localized: "similar.group.landscape"), photos: Array(SimilarPhoto.samples.dropFirst(2).prefix(3)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
-                SimilarGroup(title: String(localized: "similar.group.burst"), photos: Array(SimilarPhoto.samples.dropFirst(5)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
+                similarContent
             }
             .padding(.bottom, 16)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            BottomActionBar(text: String.localizedStringWithFormat(String(localized: "selected.photos.format"), selectedCount), detail: "18.7 MB", buttonTitle: String(localized: "move.to.trash"))
+            if selectedCount > 0 {
+                BottomActionBar(
+                    text: String.localizedStringWithFormat(String(localized: "selected.photos.format"), selectedCount),
+                    detail: "",
+                    buttonTitle: String(localized: "move.to.trash")
+                ) {
+                    deleteSelected()
+                }
+            }
         }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $previewPhoto) { photo in
@@ -167,14 +189,111 @@ struct SimilarCleanView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .alert("delete.failed", isPresented: Binding(
+            get: { deletionError != nil },
+            set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deletionError ?? "")
+        }
+        .onChange(of: library.similarGroups.map(\.id)) {
+            selectNonBestPhotos()
+        }
+        .onAppear {
+            selectNonBestPhotos()
+        }
         .background(Color.cleanerBackground)
     }
 
-    private func toggle(_ photo: SimilarPhoto) {
+    @ViewBuilder
+    private var similarContent: some View {
+        switch library.authorizationStatus {
+        case .denied, .restricted:
+            ContentUnavailableView(
+                "photo.access.required",
+                systemImage: "photo.badge.exclamationmark",
+                description: Text("photo.access.description")
+            )
+            .padding(.top, 60)
+        default:
+            if library.similarGroups.isEmpty {
+                if library.scanState == .finished {
+                    ContentUnavailableView(
+                        "similar.empty",
+                        systemImage: "checkmark.circle",
+                        description: Text("similar.empty.description")
+                    )
+                    .padding(.top, 60)
+                } else {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(scanDescription)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+                }
+            } else {
+                ForEach(Array(library.similarGroups.enumerated()), id: \.element.id) { index, group in
+                    SimilarGroup(
+                        title: groupTitle(group, index: index),
+                        group: group,
+                        selectedIDs: $selectedIDs,
+                        previewPhoto: $previewPhoto
+                    )
+                }
+            }
+        }
+    }
+
+    private var scanDescription: String {
+        if case let .analyzing(current, total) = library.scanState {
+            return String.localizedStringWithFormat(
+                String(localized: "similar.analyzing.format"),
+                current,
+                total
+            )
+        }
+        return String(localized: "library.reading")
+    }
+
+    private func groupTitle(_ group: SimilarAssetGroup, index: Int) -> String {
+        guard let date = group.creationDate else { return "Group \(index + 1)" }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func selectNonBestPhotos() {
+        let available = Set(library.similarGroups.flatMap(\.assets).map(\.id))
+        selectedIDs.formIntersection(available)
+        if selectedIDs.isEmpty {
+            selectedIDs = Set(
+                library.similarGroups
+                    .flatMap(\.assets)
+                    .filter { !$0.isBest }
+                    .map(\.id)
+            )
+        }
+    }
+
+    private func toggle(_ photo: SimilarAsset) {
         if selectedIDs.contains(photo.id) {
             selectedIDs.remove(photo.id)
         } else {
             selectedIDs.insert(photo.id)
+        }
+    }
+
+    private func deleteSelected() {
+        let identifiers = selectedIDs
+        Task {
+            do {
+                try await library.deleteAssets(with: identifiers)
+                selectedIDs.subtract(identifiers)
+            } catch {
+                deletionError = error.localizedDescription
+            }
         }
     }
 }
@@ -656,9 +775,9 @@ private struct AlbumRow: View {
 
 private struct SimilarGroup: View {
     let title: String
-    let photos: [SimilarPhoto]
+    let group: SimilarAssetGroup
     @Binding var selectedIDs: Set<String>
-    @Binding var previewPhoto: SimilarPhoto?
+    @Binding var previewPhoto: SimilarAsset?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -667,7 +786,9 @@ private struct SimilarGroup: View {
                     .font(.subheadline.weight(.bold))
                 Spacer()
                 Button("select.all") {
-                    photos.forEach { selectedIDs.insert($0.id) }
+                    group.assets
+                        .filter { !$0.isBest }
+                        .forEach { selectedIDs.insert($0.id) }
                 }
                 .font(.caption.weight(.semibold))
             }
@@ -675,7 +796,7 @@ private struct SimilarGroup: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(photos) { photo in
+                    ForEach(group.assets) { photo in
                         SimilarPhotoCard(photo: photo, selected: selectedIDs.contains(photo.id)) {
                             previewPhoto = photo
                         } toggle: {
@@ -694,7 +815,7 @@ private struct SimilarGroup: View {
 }
 
 private struct SimilarPhotoCard: View {
-    let photo: SimilarPhoto
+    let photo: SimilarAsset
     let selected: Bool
     let preview: () -> Void
     let toggle: () -> Void
@@ -702,15 +823,11 @@ private struct SimilarPhotoCard: View {
     var body: some View {
         Button(action: preview) {
             ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(photo.gradient)
-                    .overlay(alignment: .bottomLeading) {
-                        Text(photo.shortTitle)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(8)
-                    }
-                if photo.best {
+                PhotoThumbnailView(
+                    asset: photo.asset,
+                    targetSize: CGSize(width: 132, height: 146)
+                )
+                if photo.isBest {
                     Image(systemName: "star.fill")
                         .foregroundStyle(.yellow)
                         .padding(8)
@@ -724,38 +841,47 @@ private struct SimilarPhotoCard: View {
                 }
                 .padding(8)
             }
-            .frame(width: photo.landscape ? 142 : 108, height: 146)
+            .frame(width: photo.asset.pixelWidth > photo.asset.pixelHeight ? 142 : 108, height: 146)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
     }
 }
 
 private struct PhotoPreview: View {
-    let photo: SimilarPhoto
+    let photo: SimilarAsset
     let isSelected: Bool
     let toggle: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(photo.gradient)
-                    .overlay {
-                        Text(photo.title)
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .padding(20)
-                    }
+                PhotoThumbnailView(
+                    asset: photo.asset,
+                    targetSize: CGSize(width: 720, height: 540)
+                )
                     .aspectRatio(4 / 3, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
 
                 VStack(spacing: 12) {
-                    InfoPair(title: String(localized: "photo.time"), value: photo.time)
-                    InfoPair(title: String(localized: "photo.location"), value: photo.location)
-                    InfoPair(title: String(localized: "photo.model"), value: photo.model)
-                    InfoPair(title: String(localized: "photo.size"), value: photo.size)
+                    InfoPair(
+                        title: String(localized: "photo.time"),
+                        value: photo.asset.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "-"
+                    )
+                    InfoPair(
+                        title: String(localized: "photo.location"),
+                        value: photo.asset.location == nil ? "-" : String(localized: "location.available")
+                    )
+                    InfoPair(
+                        title: String(localized: "photo.model"),
+                        value: "\(photo.asset.pixelWidth) x \(photo.asset.pixelHeight)"
+                    )
+                    InfoPair(
+                        title: String(localized: "photo.size"),
+                        value: photo.isBest ? String(localized: "similar.best.pick") : "-"
+                    )
                 }
                 .padding(18)
                 .background(.white, in: RoundedRectangle(cornerRadius: 12))
@@ -782,6 +908,7 @@ private struct BottomActionBar: View {
     let text: String
     let detail: String
     let buttonTitle: String
+    let action: () -> Void
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -806,14 +933,16 @@ private struct BottomActionBar: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(text)
                 .font(.subheadline.weight(.bold))
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private var actionButton: some View {
-        Button(buttonTitle) {}
+        Button(buttonTitle, action: action)
             .font(.headline)
             .foregroundStyle(.white)
             .padding(.horizontal, 18)
@@ -962,6 +1091,17 @@ struct CleanerCategory: Identifiable {
     let color: Color
     let icon: String
     let kind: Kind
+
+    func with(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: title,
+            count: count,
+            size: size,
+            color: color,
+            icon: icon,
+            kind: kind
+        )
+    }
 
     static let photoSamples = [
         CleanerCategory(title: String(localized: "category.duplicates"), count: 124, size: "1.21 GB", color: .orange, icon: "rectangle.on.rectangle", kind: .duplicate),

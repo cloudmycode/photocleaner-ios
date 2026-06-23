@@ -93,3 +93,11 @@
 "settings.share" = "Share app";
 "settings.privacy" = "Privacy policy";
 "settings.version" = "Current version";
+"delete.failed" = "Unable to Delete";
+"photo.access.required" = "Photo Access Required";
+"photo.access.description" = "Enable photo access in Settings to find similar photos.";
+"similar.empty" = "No Similar Photos";
+"similar.empty.description" = "No time-adjacent similar photo groups were found.";
+"similar.analyzing.format" = "Analyzing similar photos %d/%d";
+"library.reading" = "Reading photo library";
+"location.available" = "Location available";

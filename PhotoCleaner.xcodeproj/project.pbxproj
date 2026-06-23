@@ -10,6 +10,7 @@
 		AA0000000000000000000001 /* PhotoCleanerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* PhotoCleanerApp.swift */; };
 		AA0000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000012 /* ContentView.swift */; };
 		AA0000000000000000000003 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000020 /* Localizable.strings */; };
+		AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* PhotoLibraryService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +21,7 @@
 		AA0000000000000000000015 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		AA0000000000000000000016 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		AA0000000000000000000017 /* PhotoCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000018 /* PhotoLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibraryService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,6 +48,7 @@
 			children = (
 				AA0000000000000000000011 /* PhotoCleanerApp.swift */,
 				AA0000000000000000000012 /* ContentView.swift */,
+				AA0000000000000000000018 /* PhotoLibraryService.swift */,
 				AA0000000000000000000013 /* Info.plist */,
 				AA0000000000000000000043 /* Resources */,
 			);
@@ -142,6 +145,7 @@
 			files = (
 				AA0000000000000000000001 /* PhotoCleanerApp.swift in Sources */,
 				AA0000000000000000000002 /* ContentView.swift in Sources */,
+				AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
