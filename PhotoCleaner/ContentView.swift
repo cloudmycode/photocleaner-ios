@@ -1540,7 +1540,7 @@ private struct CategoryRow: View {
                 .foregroundStyle(.tertiary)
                 .frame(width: 24, alignment: .trailing)
         }
-        .padding(.horizontal, 20)
+        .padding(.trailing, 20)
         .frame(minHeight: 56)
         .background(.white)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 20) }
