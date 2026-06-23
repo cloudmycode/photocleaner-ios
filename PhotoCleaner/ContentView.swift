@@ -124,12 +124,12 @@ struct SimilarCleanView: View {
     private var selectedCount: Int { selectedIDs.count }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(spacing: 18) {
-                    HStack {
+        ScrollView {
+            VStack(spacing: 18) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline) {
                         Text("similar.title")
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.title2.bold())
                         Spacer()
                         Text("similar.best.pick")
                             .font(.caption.weight(.semibold))
@@ -138,16 +138,26 @@ struct SimilarCleanView: View {
                             .background(Color.cleanerGreen.opacity(0.12), in: Capsule())
                             .foregroundStyle(Color.cleanerGreen)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 18)
 
-                    SimilarGroup(title: String(localized: "similar.group.portrait"), photos: Array(SimilarPhoto.samples.prefix(2)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
-                    SimilarGroup(title: String(localized: "similar.group.landscape"), photos: Array(SimilarPhoto.samples.dropFirst(2).prefix(3)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
-                    SimilarGroup(title: String(localized: "similar.group.burst"), photos: Array(SimilarPhoto.samples.dropFirst(5)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("similar.title")
+                            .font(.title2.bold())
+                        Text("similar.best.pick")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.cleanerGreen)
+                    }
                 }
-                .padding(.bottom, 96)
-            }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
 
+                SimilarGroup(title: String(localized: "similar.group.portrait"), photos: Array(SimilarPhoto.samples.prefix(2)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
+                SimilarGroup(title: String(localized: "similar.group.landscape"), photos: Array(SimilarPhoto.samples.dropFirst(2).prefix(3)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
+                SimilarGroup(title: String(localized: "similar.group.burst"), photos: Array(SimilarPhoto.samples.dropFirst(5)), selectedIDs: $selectedIDs, previewPhoto: $previewPhoto)
+            }
+            .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar(text: String.localizedStringWithFormat(String(localized: "selected.photos.format"), selectedCount), detail: "18.7 MB", buttonTitle: String(localized: "move.to.trash"))
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -178,98 +188,88 @@ struct SwipeCleanView: View {
     private let cards = SwipePhoto.samples
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("\(index + 1)/\(cards.count)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("undo") {
-                    index = max(0, index - 1)
-                }
-                .font(.subheadline.weight(.semibold))
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-
-            Spacer(minLength: 18)
-
-            ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(cards[index].gradient)
-                    .overlay {
-                        VStack(spacing: 14) {
-                            Image(systemName: category.icon)
-                                .font(.system(size: 46, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.92))
-                            Text(cards[index].title)
-                                .font(.title2.weight(.bold))
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.white)
-                            Text(cards[index].subtitle)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.white.opacity(0.72))
-                        }
-                        .padding(24)
+        ScrollView {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("\(index + 1)/\(cards.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("undo") {
+                        index = max(0, index - 1)
                     }
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(0.78, contentMode: .fit)
-                    .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
-                    .offset(offset)
-                    .rotationEffect(.degrees(Double(offset.width / 18)))
-                    .gesture(
-                        DragGesture()
-                            .onChanged { offset = $0.translation }
-                            .onEnded { value in
-                                if abs(value.translation.width) > 110 {
-                                    advance()
-                                }
-                                offset = .zero
+                    .font(.subheadline.weight(.semibold))
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                ZStack(alignment: .bottomTrailing) {
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(cards[index].gradient)
+                        .overlay {
+                            VStack(spacing: 14) {
+                                Image(systemName: category.icon)
+                                    .font(.system(size: 46, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.92))
+                                Text(cards[index].title)
+                                    .font(.title2.weight(.bold))
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(.white)
+                                Text(cards[index].subtitle)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.white.opacity(0.72))
                             }
-                    )
+                            .padding(24)
+                        }
+                        .frame(maxWidth: 440)
+                        .aspectRatio(0.84, contentMode: .fit)
+                        .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+                        .offset(offset)
+                        .rotationEffect(.degrees(Double(offset.width / 18)))
+                        .gesture(
+                            DragGesture()
+                                .onChanged { offset = $0.translation }
+                                .onEnded { value in
+                                    if abs(value.translation.width) > 110 {
+                                        advance()
+                                    }
+                                    offset = .zero
+                                }
+                        )
 
-                Button {
-                    showInfo.toggle()
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.headline)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
+                    Button {
+                        showInfo.toggle()
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .padding(18)
                 }
-                .padding(18)
-            }
-            .padding(.horizontal, 22)
-
-            if showInfo {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("2026-06-05 14:22", systemImage: "calendar")
-                    Label("Beijing Haidian", systemImage: "location")
-                    Label("4.8 MB (4032 x 3024)", systemImage: "internaldrive")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
                 .padding(.horizontal, 22)
-                .padding(.top, 14)
-            }
+                .padding(.top, 18)
 
-            Spacer(minLength: 20)
-
-            HStack(spacing: 12) {
-                ActionCircle(systemName: "trash", tint: .red) { advance() }
-                ActionCircle(systemName: "square.and.arrow.up", tint: .cleanerBlue) {}
-                ActionCircle(systemName: "heart", tint: .pink) {}
-                ActionCircle(systemName: "square.grid.2x2", tint: .gray) {}
-                Button("keep") { advance() }
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
+                if showInfo {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("2026-06-05 14:22", systemImage: "calendar")
+                        Label("Beijing Haidian", systemImage: "location")
+                        Label("4.8 MB (4032 x 3024)", systemImage: "internaldrive")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
+                    .padding(.horizontal, 22)
+                    .padding(.top, 14)
+                }
+                Color.clear.frame(height: 20)
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            swipeActions
             .padding(20)
             .background(.white)
             .overlay(alignment: .top) { Divider() }
@@ -283,6 +283,40 @@ struct SwipeCleanView: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
             index = (index + 1) % cards.count
         }
+    }
+
+    private var swipeActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                actionIcons
+                keepButton
+            }
+
+            VStack(spacing: 12) {
+                HStack {
+                    actionIcons
+                }
+                keepButton
+            }
+        }
+    }
+
+    private var actionIcons: some View {
+        Group {
+            ActionCircle(systemName: "trash", tint: .red) { advance() }
+            ActionCircle(systemName: "square.and.arrow.up", tint: .cleanerBlue) {}
+            ActionCircle(systemName: "heart", tint: .pink) {}
+            ActionCircle(systemName: "square.grid.2x2", tint: .gray) {}
+        }
+    }
+
+    private var keepButton: some View {
+        Button("keep") { advance() }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -322,38 +356,40 @@ struct CompressDetailView: View {
     @State private var quality: Double = 0.68
 
     var body: some View {
-        VStack(spacing: 18) {
-            RoundedRectangle(cornerRadius: 18)
-                .fill(LinearGradient(colors: [.black.opacity(0.9), bucket.color.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 64))
-                        .foregroundStyle(.white.opacity(0.9))
+        ScrollView {
+            VStack(spacing: 18) {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(LinearGradient(colors: [.black.opacity(0.9), bucket.color.opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 64))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .aspectRatio(16 / 10, contentMode: .fit)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+
+                VStack(spacing: 14) {
+                    HStack {
+                        Text("compress.quality")
+                        Spacer()
+                        Text("\(Int(quality * 100))%")
+                            .foregroundStyle(Color.cleanerBlue)
+                            .fontWeight(.bold)
+                    }
+                    Slider(value: $quality, in: 0.35...0.9)
+                    InfoPair(title: String(localized: "original.size"), value: bucket.size)
+                    InfoPair(title: String(localized: "estimated.size"), value: "4.72 GB")
+                    InfoPair(title: String(localized: "space.saved"), value: "6.34 GB")
                 }
-                .aspectRatio(16 / 10, contentMode: .fit)
+                .padding(18)
+                .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
                 .padding(.horizontal, 20)
-                .padding(.top, 20)
-
-            VStack(spacing: 14) {
-                HStack {
-                    Text("compress.quality")
-                    Spacer()
-                    Text("\(Int(quality * 100))%")
-                        .foregroundStyle(Color.cleanerBlue)
-                        .fontWeight(.bold)
-                }
-                Slider(value: $quality, in: 0.35...0.9)
-                InfoPair(title: String(localized: "original.size"), value: bucket.size)
-                InfoPair(title: String(localized: "estimated.size"), value: "4.72 GB")
-                InfoPair(title: String(localized: "space.saved"), value: "6.34 GB")
             }
-            .padding(18)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
-            .padding(.horizontal, 20)
-
-            Spacer()
-
+            .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             NavigationLink {
                 CompressResultView()
             } label: {
@@ -365,6 +401,8 @@ struct CompressDetailView: View {
                     .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
             }
             .padding(20)
+            .background(.white)
+            .overlay(alignment: .top) { Divider() }
         }
         .navigationTitle(bucket.title)
         .background(Color.cleanerBackground)
@@ -466,7 +504,7 @@ private struct CleanerHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 28, weight: .bold))
+            .font(.title2.bold())
             .foregroundStyle(Color.cleanerText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
@@ -483,14 +521,16 @@ private struct StorageCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(label.uppercased())
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(value)
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(Color.cleanerBlue)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    storageLabel
+                    Spacer(minLength: 12)
+                    storageValue
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    storageLabel
+                    storageValue
+                }
             }
             Text(description)
                 .font(.caption)
@@ -502,6 +542,19 @@ private struct StorageCard: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 20)
         .background(.white)
+    }
+
+    private var storageLabel: some View {
+        Text(label.uppercased())
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.secondary)
+    }
+
+    private var storageValue: some View {
+        Text(value)
+            .font(.title.bold())
+            .foregroundStyle(Color.cleanerBlue)
+            .minimumScaleFactor(0.75)
     }
 }
 
@@ -683,40 +736,43 @@ private struct PhotoPreview: View {
     let toggle: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            RoundedRectangle(cornerRadius: 18)
-                .fill(photo.gradient)
-                .overlay {
-                    Text(photo.title)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .padding(20)
+        ScrollView {
+            VStack(spacing: 18) {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(photo.gradient)
+                    .overlay {
+                        Text(photo.title)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(20)
+                    }
+                    .aspectRatio(4 / 3, contentMode: .fit)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+
+                VStack(spacing: 12) {
+                    InfoPair(title: String(localized: "photo.time"), value: photo.time)
+                    InfoPair(title: String(localized: "photo.location"), value: photo.location)
+                    InfoPair(title: String(localized: "photo.model"), value: photo.model)
+                    InfoPair(title: String(localized: "photo.size"), value: photo.size)
                 }
-                .frame(height: 260)
+                .padding(18)
+                .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
                 .padding(.horizontal, 20)
-                .padding(.top, 20)
 
-            VStack(spacing: 12) {
-                InfoPair(title: String(localized: "photo.time"), value: photo.time)
-                InfoPair(title: String(localized: "photo.location"), value: photo.location)
-                InfoPair(title: String(localized: "photo.model"), value: photo.model)
-                InfoPair(title: String(localized: "photo.size"), value: photo.size)
+                Button(isSelected ? String(localized: "unselect") : String(localized: "select")) {
+                    toggle()
+                }
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 50)
+                .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
-            .padding(18)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
-            .padding(.horizontal, 20)
-
-            Button(isSelected ? String(localized: "unselect") : String(localized: "select")) {
-                toggle()
-            }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal, 20)
         }
         .background(Color.cleanerBackground)
     }
@@ -728,25 +784,41 @@ private struct BottomActionBar: View {
     let buttonTitle: String
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(text)
-                    .font(.subheadline.weight(.bold))
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                actionSummary
+                Spacer(minLength: 12)
+                actionButton
             }
-            Spacer()
-            Button(buttonTitle) {}
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .frame(height: 46)
-                .background(Color.red, in: RoundedRectangle(cornerRadius: 12))
+
+            VStack(alignment: .leading, spacing: 10) {
+                actionSummary
+                actionButton
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding(16)
         .background(.white)
         .overlay(alignment: .top) { Divider() }
+    }
+
+    private var actionSummary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(text)
+                .font(.subheadline.weight(.bold))
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var actionButton: some View {
+        Button(buttonTitle) {}
+            .font(.headline)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 46)
+            .background(Color.red, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -824,20 +896,25 @@ private struct SettingsNavRow: View {
     let value: String?
 
     var body: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(title)
+                .layoutPriority(1)
             Spacer()
             if let value {
                 Text(value)
                     .foregroundStyle(.secondary)
                     .font(.subheadline)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 16)
-        .frame(height: 52)
+        .padding(.vertical, 14)
+        .frame(minHeight: 52)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
     }
 }
@@ -847,14 +924,29 @@ private struct InfoPair: View {
     let value: String
 
     var body: some View {
-        HStack {
-            Text(title)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .fontWeight(.semibold)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline) {
+                titleText
+                Spacer(minLength: 12)
+                valueText
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                titleText
+                valueText
+            }
         }
         .font(.subheadline)
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .foregroundStyle(.secondary)
+    }
+
+    private var valueText: some View {
+        Text(value)
+            .fontWeight(.semibold)
+            .multilineTextAlignment(.trailing)
     }
 }
 
