@@ -52,8 +52,7 @@ struct QuickCleanView: View {
             CleanerCategory.similar(
                 count: library.similarGroups.reduce(0) { $0 + $1.assets.count }
             ),
-            CleanerCategory.screenshots(count: library.screenshotAssets.count),
-            CleanerCategory.largeImages(count: library.largeImageAssets.count)
+            CleanerCategory.screenshots(count: library.screenshotAssets.count)
         ]
     }
 
@@ -743,8 +742,6 @@ struct AssetSwipeCleanView: View {
         switch category.kind {
         case .screenshot:
             return library.screenshotAssets
-        case .largeImage:
-            return library.largeImageAssets
         case .video:
             return library.videoAssets
         case .largeVideo:
@@ -1488,7 +1485,7 @@ private struct InfoPair: View {
 
 struct CleanerCategory: Identifiable {
     enum Kind: Hashable {
-        case duplicate, similar, screenshot, lowQuality, largeImage, video, largeVideo, recording, emptyAlbum
+        case duplicate, similar, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
     }
 
     var id: Kind { kind }
@@ -1540,17 +1537,6 @@ struct CleanerCategory: Identifiable {
             color: .red,
             icon: "iphone",
             kind: .screenshot
-        )
-    }
-
-    static func largeImages(count: Int) -> CleanerCategory {
-        CleanerCategory(
-            title: String(localized: "category.large.images"),
-            count: count,
-            size: "",
-            color: .cleanerGreen,
-            icon: "photo",
-            kind: .largeImage
         )
     }
 

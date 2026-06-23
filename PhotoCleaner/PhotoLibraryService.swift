@@ -47,7 +47,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var videoCount = 0
     @Published private(set) var screenshotCount = 0
     @Published private(set) var screenshotAssets: [PHAsset] = []
-    @Published private(set) var largeImageAssets: [PHAsset] = []
     @Published private(set) var videoAssets: [PHAsset] = []
     @Published private(set) var largeVideoAssets: [PHAsset] = []
     @Published private(set) var screenRecordingAssets: [PHAsset] = []
@@ -114,11 +113,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             screenshotAssets = Array(
                 assets
                     .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
-                    .reversed()
-            )
-            largeImageAssets = Array(
-                assets
-                    .filter { $0.pixelWidth * $0.pixelHeight >= 12_000_000 }
                     .reversed()
             )
             screenshotCount = screenshotAssets.count
