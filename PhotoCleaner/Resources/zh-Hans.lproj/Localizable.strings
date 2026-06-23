@@ -1,7 +1,7 @@
 "app.name" = "Smart Cleaner";
 "tab.quick" = "快速清理";
 "tab.albums" = "月度相册";
-"tab.compress" = "视频压缩";
+"tab.compress" = "视频清理";
 "tab.settings" = "设置";
 "media.storage" = "媒体存储";
 "media.storage.description" = "照片和视频占用的总空间";
@@ -38,6 +38,7 @@
 "similar.group.landscape" = "3 张照片（横屏风景）";
 "similar.group.burst" = "连拍对比";
 "select.all" = "全选";
+"select.none" = "取消全选";
 "selected.photos.format" = "已选择 %lld 张照片";
 "move.to.trash" = "移至废纸篓";
 "photo.time" = "时间";
@@ -63,7 +64,7 @@
 "photo.landscape.three" = "横屏 3";
 "photo.burst.one" = "图 1";
 "photo.burst.two" = "图 2";
-"compress.summary.description" = "查找大型视频并安全压缩";
+"compress.summary.description" = "逐个查看视频，标记后统一删除";
 "batch.compress" = "批量压缩";
 "compress.recommended" = "推荐压缩";
 "compress.footer" = "除非在设置中更改，压缩后会保留原视频。";
@@ -106,7 +107,7 @@
 "library.media" = "相册媒体";
 "library.summary.format" = "%d 张照片，%d 个视频";
 "photo.access.requesting" = "正在请求相册权限";
-"compress.not.available" = "视频压缩功能尚未启用，上方数量和预览均来自真实系统相册。";
+"video.cleanup.footer" = "视频只在预览时加载，删除前会统一确认。";
 "open.settings" = "打开系统设置";
 "duplicate.title" = "重复照片";
 "duplicate.original.kept" = "已保留原图";
@@ -127,3 +128,10 @@
 "month.progress.complete" = "已完成";
 "video.reset.zoom" = "还原视频缩放";
 "photo.reset.zoom" = "还原照片缩放";
+"settings.photo.access" = "相册访问权限";
+"settings.photo.access.full" = "全部照片";
+"settings.photo.access.limited" = "部分照片";
+"settings.photo.access.none" = "未允许";
+"settings.clear.cache.confirm.title" = "清理分析缓存？";
+"settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复和相似照片。";
+"settings.clear.cache.confirm.action" = "清理缓存";

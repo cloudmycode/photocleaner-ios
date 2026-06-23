@@ -1,7 +1,7 @@
 "app.name" = "Smart Cleaner";
 "tab.quick" = "クイック整理";
 "tab.albums" = "月別アルバム";
-"tab.compress" = "動画圧縮";
+"tab.compress" = "動画整理";
 "tab.settings" = "設定";
 "media.storage" = "メディア容量";
 "media.storage.description" = "写真と動画が使用している合計容量";
@@ -38,6 +38,7 @@
 "similar.group.landscape" = "3枚の写真（横）";
 "similar.group.burst" = "連写比較";
 "select.all" = "すべて選択";
+"select.none" = "すべて解除";
 "selected.photos.format" = "%lld 枚を選択中";
 "move.to.trash" = "ゴミ箱へ";
 "photo.time" = "日時";
@@ -63,7 +64,7 @@
 "photo.landscape.three" = "横 3";
 "photo.burst.one" = "写真 1";
 "photo.burst.two" = "写真 2";
-"compress.summary.description" = "大きな動画を探して安全に圧縮";
+"compress.summary.description" = "動画を1本ずつ確認し、選択した項目をまとめて削除";
 "batch.compress" = "一括圧縮";
 "compress.recommended" = "おすすめ圧縮";
 "compress.footer" = "設定を変更しない限り、元の動画は保持されます。";
@@ -106,7 +107,7 @@
 "library.media" = "ライブラリ内のメディア";
 "library.summary.format" = "写真 %d 枚、動画 %d 本";
 "photo.access.requesting" = "写真へのアクセスを要求中";
-"compress.not.available" = "動画圧縮はまだ有効ではありません。上記の件数とプレビューは実際の写真ライブラリのデータです。";
+"video.cleanup.footer" = "動画はプレビュー時のみ読み込み、削除前にまとめて確認します。";
 "open.settings" = "設定を開く";
 "duplicate.title" = "重複写真";
 "duplicate.original.kept" = "元の写真を保持";
@@ -127,3 +128,10 @@
 "month.progress.complete" = "完了";
 "video.reset.zoom" = "動画のズームをリセット";
 "photo.reset.zoom" = "写真のズームをリセット";
+"settings.photo.access" = "写真へのアクセス";
+"settings.photo.access.full" = "すべての写真";
+"settings.photo.access.limited" = "選択した写真";
+"settings.photo.access.none" = "許可されていません";
+"settings.clear.cache.confirm.title" = "解析キャッシュを削除しますか？";
+"settings.clear.cache.confirm.message" = "次回起動時に重複写真と類似写真を再解析します。";
+"settings.clear.cache.confirm.action" = "キャッシュを削除";

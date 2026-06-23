@@ -1,7 +1,7 @@
 "app.name" = "Smart Cleaner";
 "tab.quick" = "Quick Clean";
 "tab.albums" = "Albums";
-"tab.compress" = "Video Compress";
+"tab.compress" = "Video Cleanup";
 "tab.settings" = "Settings";
 "media.storage" = "Media Storage";
 "media.storage.description" = "Total space occupied by photos and videos";
@@ -38,6 +38,7 @@
 "similar.group.landscape" = "3 photos (landscape)";
 "similar.group.burst" = "Burst comparison";
 "select.all" = "Select all";
+"select.none" = "Deselect all";
 "selected.photos.format" = "%lld photos selected";
 "move.to.trash" = "Move to Trash";
 "photo.time" = "Time";
@@ -63,7 +64,7 @@
 "photo.landscape.three" = "Landscape 3";
 "photo.burst.one" = "Shot 1";
 "photo.burst.two" = "Shot 2";
-"compress.summary.description" = "Find oversized videos and compress them safely";
+"compress.summary.description" = "Review videos one by one, then delete marked items together";
 "batch.compress" = "Batch Compress";
 "compress.recommended" = "Recommended Compression";
 "compress.footer" = "Original videos are kept unless you change this in Settings.";
@@ -106,7 +107,7 @@
 "library.media" = "Library Media";
 "library.summary.format" = "%d photos and %d videos";
 "photo.access.requesting" = "Requesting photo access";
-"compress.not.available" = "Video compression is not enabled yet. The counts and previews above come from your real photo library.";
+"video.cleanup.footer" = "Videos load only for preview, and deletion is confirmed in one batch.";
 "open.settings" = "Open Settings";
 "duplicate.title" = "Duplicate Photos";
 "duplicate.original.kept" = "Original kept";
@@ -127,3 +128,10 @@
 "month.progress.complete" = "Complete";
 "video.reset.zoom" = "Reset video zoom";
 "photo.reset.zoom" = "Reset photo zoom";
+"settings.photo.access" = "Photo access";
+"settings.photo.access.full" = "All Photos";
+"settings.photo.access.limited" = "Selected Photos";
+"settings.photo.access.none" = "Not Allowed";
+"settings.clear.cache.confirm.title" = "Clear Analysis Cache?";
+"settings.clear.cache.confirm.message" = "Duplicate and similar photos will be analyzed again the next time the app opens.";
+"settings.clear.cache.confirm.action" = "Clear Cache";

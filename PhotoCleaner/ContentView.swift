@@ -48,10 +48,10 @@ struct QuickCleanView: View {
     private var photoItems: [CleanerCategory] {
         [
             CleanerCategory.duplicates(
-                count: library.duplicateGroups.reduce(0) { $0 + $1.assets.count }
+                count: library.duplicateGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
             ),
             CleanerCategory.similar(
-                count: library.similarGroups.reduce(0) { $0 + $1.assets.count }
+                count: library.similarGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
             ),
             CleanerCategory.screenshots(count: library.screenshotAssets.count)
         ]
@@ -639,6 +639,7 @@ struct SimilarCleanView: View {
     @State private var selectedIDs = Set<String>()
     @State private var previewPhoto: SimilarAsset?
     @State private var deletionError: String?
+    @State private var showDeleteConfirmation = false
 
     private var selectedCount: Int { selectedIDs.count }
     private var groups: [SimilarAssetGroup] {
@@ -684,7 +685,7 @@ struct SimilarCleanView: View {
                     detail: "",
                     buttonTitle: String(localized: "move.to.trash")
                 ) {
-                    deleteSelected()
+                    showDeleteConfirmation = true
                 }
             }
         }
@@ -703,6 +704,21 @@ struct SimilarCleanView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deletionError ?? "")
+        }
+        .confirmationDialog(
+            "month.delete.confirm.title",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("month.delete.confirm.action", role: .destructive) {
+                deleteSelected()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(String.localizedStringWithFormat(
+                String(localized: "month.delete.confirm.message"),
+                selectedCount
+            ))
         }
         .onChange(of: groups.map(\.id)) {
             selectNonBestPhotos()
@@ -833,13 +849,14 @@ struct AssetSwipeCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     let category: CleanerCategory
 
-    @State private var index = 0
     @State private var offset: CGSize = .zero
     @State private var showInfo = false
     @State private var excludedIDs = Set<String>()
-    @State private var history: [String] = []
+    @State private var markedIDs = Set<String>()
+    @State private var history: [ReviewAction] = []
     @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var operationError: String?
+    @State private var showDeleteConfirmation = false
 
     private var sourceAssets: [PHAsset] {
         switch category.kind {
@@ -861,8 +878,7 @@ struct AssetSwipeCleanView: View {
     }
 
     private var currentAsset: PHAsset? {
-        guard assets.indices.contains(index) else { return nil }
-        return assets[index]
+        assets.first
     }
 
     var body: some View {
@@ -879,14 +895,24 @@ struct AssetSwipeCleanView: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    actionBar(asset)
+                    VStack(spacing: 0) {
+                        if !markedIDs.isEmpty {
+                            markedSummaryBar
+                        }
+                        actionBar(asset)
+                    }
                 }
             } else {
-                ContentUnavailableView(
-                    "cleanup.complete",
-                    systemImage: "checkmark.circle",
-                    description: Text("cleanup.complete.description")
-                )
+                VStack(spacing: 0) {
+                    ContentUnavailableView(
+                        "cleanup.complete",
+                        systemImage: "checkmark.circle",
+                        description: Text("cleanup.complete.description")
+                    )
+                    if !markedIDs.isEmpty {
+                        markedSummaryBar
+                    }
+                }
             }
         }
         .navigationTitle(category.title)
@@ -900,14 +926,26 @@ struct AssetSwipeCleanView: View {
         } message: {
             Text(operationError ?? "")
         }
-        .onChange(of: assets.map(\.localIdentifier)) {
-            index = min(index, max(assets.count - 1, 0))
+        .confirmationDialog(
+            "month.delete.confirm.title",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("month.delete.confirm.action", role: .destructive) {
+                deleteMarked()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(String.localizedStringWithFormat(
+                String(localized: "month.delete.confirm.message"),
+                markedIDs.count
+            ))
         }
     }
 
     private var toolbar: some View {
         HStack {
-            Text("\(min(index + 1, assets.count))/\(assets.count)")
+            Text("\(min(excludedIDs.count + 1, sourceAssets.count))/\(sourceAssets.count)")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
             Spacer()
@@ -949,7 +987,7 @@ struct AssetSwipeCleanView: View {
                         .onChanged { offset = $0.translation }
                         .onEnded { value in
                             if value.translation.width < -110 {
-                                delete(asset)
+                                markForDeletion(asset)
                             } else if value.translation.width > 110 {
                                 keep(asset)
                             }
@@ -999,7 +1037,7 @@ struct AssetSwipeCleanView: View {
     private func actionBar(_ asset: PHAsset) -> some View {
         HStack(spacing: 14) {
             ActionCircle(systemName: "trash", tint: .red) {
-                delete(asset)
+                markForDeletion(asset)
             }
             ActionCircle(
                 systemName: isFavorite(asset) ? "heart.fill" : "heart",
@@ -1021,25 +1059,60 @@ struct AssetSwipeCleanView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
-    private func keep(_ asset: PHAsset) {
-        history.append(asset.localIdentifier)
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
-            if index < assets.count - 1 {
-                index += 1
-            } else {
-                excludedIDs.insert(asset.localIdentifier)
-                index = min(index, max(assets.count - 1, 0))
+    private var markedSummaryBar: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "month.marked.format"),
+                    markedIDs.count
+                ))
+                .font(.subheadline.weight(.bold))
+                Text("month.marked.description")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            Spacer()
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.red, in: Circle())
+            }
+            .accessibilityLabel(Text("month.delete.marked"))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func keep(_ asset: PHAsset) {
+        let id = asset.localIdentifier
+        history.append(.kept(id))
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+            _ = excludedIDs.insert(id)
         }
     }
 
-    private func delete(_ asset: PHAsset) {
+    private func markForDeletion(_ asset: PHAsset) {
         let id = asset.localIdentifier
+        history.append(.marked(id))
+        markedIDs.insert(id)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+            _ = excludedIDs.insert(id)
+        }
+    }
+
+    private func deleteMarked() {
+        let identifiers = markedIDs
         Task {
             do {
-                try await library.deleteAssets(with: Set([id]))
-                excludedIDs.insert(id)
-                index = min(index, max(assets.count - 1, 0))
+                try await library.deleteAssets(with: identifiers)
+                markedIDs.subtract(identifiers)
+                history.removeAll { identifiers.contains($0.identifier) }
             } catch {
                 operationError = error.localizedDescription
             }
@@ -1047,12 +1120,10 @@ struct AssetSwipeCleanView: View {
     }
 
     private func undo() {
-        guard let id = history.popLast() else { return }
-        if excludedIDs.remove(id) != nil,
-           let restoredIndex = assets.firstIndex(where: { $0.localIdentifier == id }) {
-            index = restoredIndex
-        } else {
-            index = max(0, index - 1)
+        guard let action = history.popLast() else { return }
+        excludedIDs.remove(action.identifier)
+        if case .marked = action {
+            markedIDs.remove(action.identifier)
         }
     }
 
@@ -1070,6 +1141,18 @@ struct AssetSwipeCleanView: View {
                 favoriteOverrides[asset.localIdentifier] = asset.isFavorite
                 operationError = error.localizedDescription
             }
+        }
+    }
+}
+
+private enum ReviewAction {
+    case kept(String)
+    case marked(String)
+
+    var identifier: String {
+        switch self {
+        case let .kept(identifier), let .marked(identifier):
+            return identifier
         }
     }
 }
@@ -1206,7 +1289,7 @@ struct VideoCompressView: View {
                 }
             }
 
-            Text("compress.not.available")
+            Text("video.cleanup.footer")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1218,43 +1301,38 @@ struct VideoCompressView: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var library: PhotoLibraryService
-    @State private var scanSimilar = true
-    @State private var diskWarning = false
-    @State private var keepOriginal = true
+    @State private var showCacheConfirmation = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 CleanerHeader(title: String(localized: "tab.settings"))
 
-                SettingsGroup(title: String(localized: "settings.cleaning")) {
-                    Toggle("settings.scan.similar", isOn: $scanSimilar)
-                    SettingsNavRow(title: String(localized: "settings.whitelist"), value: String(localized: "settings.whitelist.value"))
-                    Toggle("settings.disk.warning", isOn: $diskWarning)
-                }
-
-                SettingsGroup(title: String(localized: "settings.video.standard")) {
-                    SettingsNavRow(title: String(localized: "settings.default.quality"), value: String(localized: "settings.quality.value"))
-                    Toggle("settings.keep.original", isOn: $keepOriginal)
-                }
-
                 SettingsGroup(title: String(localized: "settings.general.security")) {
                     Button {
-                        library.clearAnalysisCache()
+                        library.openAppSettings()
                     } label: {
-                        SettingsNavRow(
+                        SettingsActionRow(
+                            title: String(localized: "settings.photo.access"),
+                            value: authorizationDescription,
+                            systemImage: "photo"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        showCacheConfirmation = true
+                    } label: {
+                        SettingsActionRow(
                             title: String(localized: "settings.clear.cache"),
-                            value: formattedCacheSize
+                            value: formattedCacheSize,
+                            systemImage: "trash"
                         )
                     }
                     .buttonStyle(.plain)
                 }
 
                 SettingsGroup(title: String(localized: "settings.support")) {
-                    SettingsNavRow(title: String(localized: "settings.email"), value: "support@smartcleaner.com")
-                    SettingsNavRow(title: String(localized: "settings.rate"), value: nil)
-                    SettingsNavRow(title: String(localized: "settings.share"), value: nil)
-                    SettingsNavRow(title: String(localized: "settings.privacy"), value: nil)
                     InfoPair(title: String(localized: "settings.version"), value: "1.0.0 (26)")
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
@@ -1270,6 +1348,18 @@ struct SettingsView: View {
             .padding(.bottom, 28)
         }
         .background(Color.cleanerBackground)
+        .confirmationDialog(
+            "settings.clear.cache.confirm.title",
+            isPresented: $showCacheConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("settings.clear.cache.confirm.action", role: .destructive) {
+                library.clearAnalysisCache()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("settings.clear.cache.confirm.message")
+        }
     }
 
     private var formattedCacheSize: String {
@@ -1277,6 +1367,17 @@ struct SettingsView: View {
             fromByteCount: library.analysisCacheSize,
             countStyle: .file
         )
+    }
+
+    private var authorizationDescription: String {
+        switch library.authorizationStatus {
+        case .authorized:
+            return String(localized: "settings.photo.access.full")
+        case .limited:
+            return String(localized: "settings.photo.access.limited")
+        default:
+            return String(localized: "settings.photo.access.none")
+        }
     }
 }
 
@@ -1421,10 +1522,12 @@ private struct SimilarGroup: View {
                 Text(title)
                     .font(.subheadline.weight(.bold))
                 Spacer()
-                Button("select.all") {
-                    group.assets
-                        .filter { !$0.isBest }
-                        .forEach { selectedIDs.insert($0.id) }
+                Button(allCandidatesSelected ? "select.none" : "select.all") {
+                    if allCandidatesSelected {
+                        selectedIDs.subtract(candidateIDs)
+                    } else {
+                        selectedIDs.formUnion(candidateIDs)
+                    }
                 }
                 .font(.caption.weight(.semibold))
             }
@@ -1447,6 +1550,14 @@ private struct SimilarGroup: View {
                 .padding(.horizontal, 20)
             }
         }
+    }
+
+    private var candidateIDs: Set<String> {
+        Set(group.assets.filter { !$0.isBest }.map(\.id))
+    }
+
+    private var allCandidatesSelected: Bool {
+        !candidateIDs.isEmpty && candidateIDs.isSubset(of: selectedIDs)
     }
 }
 
@@ -1637,32 +1748,35 @@ private struct SettingsGroup<Content: View>: View {
     }
 }
 
-private struct SettingsNavRow: View {
+private struct SettingsActionRow: View {
     let title: String
     let value: String?
+    let systemImage: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(Color.cleanerBlue)
+                .frame(width: 24)
             Text(title)
                 .layoutPriority(1)
             Spacer()
             if let value {
                 Text(value)
-                    .foregroundStyle(.secondary)
                     .font(.subheadline)
-                    .multilineTextAlignment(.trailing)
-                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
-                .frame(width: 24, alignment: .trailing)
+                .frame(width: 20, alignment: .trailing)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .frame(minHeight: 52)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 52) }
     }
 }
 
