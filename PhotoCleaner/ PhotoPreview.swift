@@ -3406,6 +3406,7 @@ private struct CloudPhotoSearchParser {
         let model = (Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseModel") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentDate = Self.currentDateString()
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -3424,6 +3425,7 @@ private struct CloudPhotoSearchParser {
                     Query: \(trimmedText)
                     Locale: \(Locale.current.identifier)
                     Timezone: \(TimeZone.current.identifier)
+                    Current date: \(currentDate)
                     """
                 )
             ],
@@ -3468,9 +3470,19 @@ private struct CloudPhotoSearchParser {
       "requiresOCR": false
     }
     Omit unknown fields. Photos never leave the device; use OCR fields for text on images.
+    Resolve relative dates like today, yesterday, last year, and last month from the provided Current date.
     For card tail-number queries, put a suitable regex in ocrRegexes and set requiresOCR true.
     For people clothing queries, use person plus color_clothing. Do not infer gender as a required tag.
     """
+
+    private static func currentDateString() -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
 
     private static func jsonData(from content: String) -> Data? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
