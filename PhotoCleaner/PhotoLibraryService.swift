@@ -361,9 +361,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             monthGroups = snapshot.monthGroups
             persistMonthlyAlbums(from: snapshot.monthGroups)
             rebuildAllMonthlyProgress()
-            burstGroups = snapshot.initialBurstGroups
-            burstCandidateCount = Self.cleanableCount(in: snapshot.initialBurstGroups)
-            burstCandidateStorageBytes = snapshot.initialBurstCandidateStorageBytes
+            if !hasCompletedInitialAnalysis {
+                burstGroups = snapshot.initialBurstGroups
+                burstCandidateCount = Self.cleanableCount(in: snapshot.initialBurstGroups)
+                burstCandidateStorageBytes = snapshot.initialBurstCandidateStorageBytes
+            }
             mediaStorageBytes = snapshot.mediaStorageBytes
             videoStorageBytes = snapshot.videoStorageBytes
             screenshotStorageBytes = snapshot.screenshotStorageBytes
@@ -387,6 +389,18 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
             var analyzedBurstGroups = snapshot.initialBurstGroups
             let candidates = snapshot.burstCandidates
+            let burstCacheComplete = await restoreBurstGroupsFromCache(
+                candidates: candidates
+            )
+            if burstCacheComplete {
+                analysisCacheSize = await analysisCache.sizeInBytes() +
+                    duplicateCache.sizeInBytes()
+                persistHomeSummary()
+                markInitialAnalysisComplete()
+                scanState = .finished
+                return
+            }
+
             scanState = .analyzing(current: 0, total: candidates.count)
 
             var activeCache: [String: CachedSimilarGroup] = [:]
@@ -711,6 +725,36 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             )
         )
         return cached.count == assets.count
+    }
+
+    private func restoreBurstGroupsFromCache(candidates: [[PHAsset]]) async -> Bool {
+        guard !candidates.isEmpty else {
+            burstGroups = []
+            burstCandidateCount = 0
+            burstCandidateStorageBytes = 0
+            return true
+        }
+
+        var restoredGroups: [SimilarAssetGroup] = []
+        var hasMissingCache = false
+
+        for candidate in candidates {
+            let signature = SimilarAnalysisSignature.make(for: candidate)
+            guard let cached = await analysisCache.group(for: signature) else {
+                hasMissingCache = true
+                continue
+            }
+            if let group = Self.restoreGroup(cached, from: candidate) {
+                restoredGroups.append(group)
+            }
+        }
+
+        burstGroups = restoredGroups.sorted {
+            ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+        }
+        burstCandidateCount = Self.cleanableCount(in: burstGroups)
+        burstCandidateStorageBytes = Self.cleanableStorageBytes(in: burstGroups)
+        return !hasMissingCache
     }
 
     private func scanDuplicates(in assets: [PHAsset]) async {

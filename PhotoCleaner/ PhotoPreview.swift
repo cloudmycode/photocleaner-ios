@@ -357,6 +357,7 @@ struct QuickCleanView: View {
         case .duplicate:
             return library.hasDuplicateScanResults || library.duplicateScanProgress == nil
         case .burst:
+            if library.hasCompletedInitialAnalysis { return true }
             if library.duplicateScanProgress != nil { return false }
             if case let .analyzing(current, total) = library.scanState {
                 return current >= total
@@ -1020,7 +1021,7 @@ struct SimilarCleanView: View {
             .padding(.top, 60)
         default:
             if groups.isEmpty {
-                if library.scanState == .finished {
+                if library.scanState == .finished || library.hasCompletedInitialAnalysis {
                     ContentUnavailableView(
                         emptyTitleKey,
                         systemImage: "checkmark.circle",
