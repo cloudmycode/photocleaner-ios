@@ -2835,114 +2835,33 @@ struct SmartPhotoSearchView: View {
     private let parser = CloudPhotoSearchParser()
 
     var body: some View {
-        CleanerScroll {
-            CleanerHeader(title: String(localized: "tab.smart.search"))
+        ScrollView {
+            VStack(spacing: 18) {
+                CleanerHeader(title: String(localized: "tab.smart.search"))
+                    .padding(.top, 18)
 
-            VStack(alignment: .leading, spacing: 14) {
-                Text("smart.search.prompt")
-                    .font(.headline)
-
-                TextField("smart.search.placeholder", text: $queryText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(2...4)
-                    .padding(14)
-                    .background(Color.cleanerCard, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.cleanerBorder, lineWidth: 1)
+                if let parsedQuery {
+                    CleanerSection(title: String(localized: "smart.search.understood")) {
+                        SearchUnderstandingView(query: parsedQuery)
                     }
-
-                HStack(spacing: 12) {
-                    holdToSpeakButton
-
-                    Button {
-                        submitQuery(queryText)
-                    } label: {
-                        HStack(spacing: 8) {
-                            if isParsing || isSearching {
-                                ProgressView()
-                                    .tint(.white)
-                            }
-                            Text("smart.search.start")
-                                .font(.subheadline.bold())
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    .disabled(queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isParsing || isSearching)
                 }
 
-                if speech.isRecording {
-                    Text("smart.search.listening")
-                        .font(.caption)
-                        .foregroundStyle(Color.cleanerBlue)
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
                 }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
 
-            if let parsedQuery {
-                CleanerSection(title: String(localized: "smart.search.understood")) {
-                    SearchUnderstandingView(query: parsedQuery)
-                }
+                resultsContent
             }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-            }
-
-            CleanerSection(title: resultsTitle) {
-                if isSearching {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("smart.search.searching")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
-                } else if results.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "photo.stack")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(Color.cleanerBlue)
-                        Text(parsedQuery == nil ? "smart.search.empty.idle" : "smart.search.empty.results")
-                            .font(.subheadline.weight(.semibold))
-                        Text("smart.search.empty.description")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 32)
-                } else {
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3),
-                        spacing: 2
-                    ) {
-                        ForEach(results, id: \.localIdentifier) { asset in
-                            AssetGridItem(
-                                asset: asset,
-                                isSelected: false,
-                                storageText: formattedStorage(library.storageBytes(for: asset)),
-                                showsVideoBadge: asset.mediaType == .video,
-                                onToggle: {},
-                                onPreview: { previewAsset = IdentifiablePHAsset(asset: asset) }
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                    .padding(.bottom, 20)
-                }
-            }
+            .padding(.bottom, 96)
         }
         .background(Color.cleanerBackground)
+        .safeAreaInset(edge: .bottom) {
+            searchInputBar
+        }
         .animatedTabBarVisible()
         .assetPreview($previewAsset, assets: results)
         .onChange(of: speech.transcript) {
@@ -2956,6 +2875,114 @@ struct SmartPhotoSearchView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    @ViewBuilder
+    private var resultsContent: some View {
+        CleanerSection(title: resultsTitle) {
+            if isSearching {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("smart.search.searching")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+            } else if results.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "photo.stack")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(Color.cleanerBlue)
+                    Text(parsedQuery == nil ? "smart.search.empty.idle" : "smart.search.empty.results")
+                        .font(.subheadline.weight(.semibold))
+                    Text("smart.search.empty.description")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 42)
+            } else {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3),
+                    spacing: 2
+                ) {
+                    ForEach(results, id: \.localIdentifier) { asset in
+                        AssetGridItem(
+                            asset: asset,
+                            isSelected: false,
+                            storageText: formattedStorage(library.storageBytes(for: asset)),
+                            showsVideoBadge: asset.mediaType == .video,
+                            onToggle: {},
+                            onPreview: { previewAsset = IdentifiablePHAsset(asset: asset) }
+                        )
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.bottom, 20)
+            }
+        }
+    }
+
+    private var searchInputBar: some View {
+        VStack(spacing: 8) {
+            if speech.isRecording {
+                Text("smart.search.listening")
+                    .font(.caption)
+                    .foregroundStyle(Color.cleanerBlue)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 10) {
+                holdToSpeakButton
+
+                TextField("smart.search.placeholder", text: $queryText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...3)
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: 46)
+                    .background(Color.cleanerCard, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.cleanerBorder, lineWidth: 1)
+                    }
+
+                searchButton
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.cleanerBorder.opacity(0.8))
+                .frame(height: 0.5)
+        }
+    }
+
+    private var searchButton: some View {
+        Button {
+            submitQuery(queryText)
+        } label: {
+            ZStack {
+                if isParsing || isSearching {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: "magnifyingglass")
+                        .font(.headline.weight(.semibold))
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(width: 46, height: 46)
+            .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .disabled(queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isParsing || isSearching)
+        .opacity(queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
+        .accessibilityLabel(Text("smart.search.start"))
     }
 
     private var resultsTitle: String {
@@ -2973,7 +3000,7 @@ struct SmartPhotoSearchView: View {
             Image(systemName: speech.isRecording ? "waveform" : "mic.fill")
                 .font(.headline)
                 .foregroundStyle(.white)
-                .frame(width: 54, height: 50)
+                .frame(width: 46, height: 46)
                 .background(speech.isRecording ? Color.red : Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 8))
         }
         .simultaneousGesture(
