@@ -19,7 +19,7 @@ actor SimilarAnalysisCache {
         var groups: [String: CachedSimilarGroup]
     }
 
-    private let algorithmVersion = 3
+    private let algorithmVersion = 4
     private let fileURL: URL
     private var groups: [String: CachedSimilarGroup]?
 
@@ -230,5 +230,63 @@ actor MonthlyReviewStore {
     func save(_ states: [String: State]) throws {
         let data = try JSONEncoder().encode(states)
         try data.write(to: fileURL, options: .atomic)
+    }
+}
+
+struct CachedMonthGroup: Codable {
+    let id: String
+    let date: Date
+    let localIdentifiers: [String]
+    let storageBytes: Int64
+}
+
+actor MonthlyAlbumsCache {
+    private struct Payload: Codable {
+        let version: Int
+        let groups: [CachedMonthGroup]
+    }
+
+    private let algorithmVersion = 1
+    private let fileURL: URL
+    private var groups: [CachedMonthGroup]?
+
+    init() {
+        let baseURL = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first!
+        let directory = baseURL.appendingPathComponent(
+            "MonthlyAlbums",
+            isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        fileURL = directory.appendingPathComponent("groups.json")
+    }
+
+    func load() -> [CachedMonthGroup]? {
+        guard let data = try? Data(contentsOf: fileURL),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == algorithmVersion else {
+            return nil
+        }
+        return payload.groups
+    }
+
+    func save(_ groups: [CachedMonthGroup]) throws {
+        let data = try JSONEncoder().encode(
+            Payload(version: algorithmVersion, groups: groups)
+        )
+        try data.write(to: fileURL, options: .atomic)
+        self.groups = groups
+    }
+
+    func clear() throws {
+        groups = nil
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
     }
 }

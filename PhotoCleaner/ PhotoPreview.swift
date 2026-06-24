@@ -1,5 +1,6 @@
 import AVKit
 import Photos
+import PhotosUI
 import SwiftUI
 
 struct ContentView: View {
@@ -85,6 +86,12 @@ struct QuickCleanView: View {
         ]
     }
 
+    private var albumItems: [CleanerCategory] {
+        [
+            CleanerCategory.emptyAlbums(count: library.emptyAlbumCount)
+        ]
+    }
+
     private var formattedMediaStorage: String {
         formattedStorage(library.mediaStorageBytes)
     }
@@ -142,6 +149,17 @@ struct QuickCleanView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                    }
+                }
+
+                CleanerSection(title: String(localized: "section.albums")) {
+                    ForEach(albumItems) { item in
+                        NavigationLink {
+                            EmptyAlbumCleanView()
+                        } label: {
+                            CategoryRow(item: item, loadingText: nil)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
 
@@ -227,17 +245,11 @@ struct QuickCleanView: View {
     }
 
     private func canOpen(_ item: CleanerCategory) -> Bool {
-        if case .loadingLibrary = library.scanState {
-            return false
-        }
-
         switch item.kind {
         case .duplicate:
             return library.duplicateScanProgress == nil
         case .burst:
-            if library.duplicateScanProgress != nil {
-                return false
-            }
+            if library.duplicateScanProgress != nil { return false }
             if case let .analyzing(current, total) = library.scanState {
                 return current >= total
             }
@@ -384,6 +396,7 @@ struct MonthlyReviewView: View {
     @State private var isMagnifying = false
     @State private var showDeleteConfirmation = false
     @State private var deletionError: String?
+    @State private var previewAsset: IdentifiablePHAsset?
 
     private var availableAssets: [PHAsset] {
         assets.filter { !removedIDs.contains($0.localIdentifier) }
@@ -466,6 +479,7 @@ struct MonthlyReviewView: View {
             reviewedIDs = library.reviewedIDs(for: monthID)
             markedIDs = library.markedIDs(for: monthID)
         }
+        .assetPreview($previewAsset)
     }
 
     private var reviewToolbar: some View {
@@ -534,6 +548,7 @@ struct MonthlyReviewView: View {
         .rotationEffect(.degrees(Double(offset.width / 18)))
         .simultaneousGesture(monthlyMagnifyGesture)
         .simultaneousGesture(monthlyDragGesture(for: asset))
+        .onTapGesture { previewAsset = IdentifiablePHAsset(asset: asset) }
         .padding(.horizontal, 22)
     }
 
@@ -703,14 +718,11 @@ private struct MonthAssetRow: View {
     let group: PhotoMonthGroup
 
     private var progress: Double {
-        library.monthlyProgress(for: group)
+        library.monthlyProgress[group.id] ?? 0
     }
 
     private var reviewedCount: Int {
-        let availableIDs = Set(group.assets.map(\.localIdentifier))
-        return library.reviewedIDs(for: group.id)
-            .intersection(availableIDs)
-            .count
+        library.monthlyReviewedCounts[group.id] ?? 0
     }
 
     var body: some View {
@@ -785,7 +797,7 @@ struct SimilarCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     let mode: PhotoGroupCleanMode
     @State private var selectedIDs = Set<String>()
-    @State private var previewPhoto: SimilarAsset?
+    @State private var previewPhoto: IdentifiablePHAsset?
     @State private var deletionError: String?
     @State private var showDeleteConfirmation = false
 
@@ -844,12 +856,15 @@ struct SimilarCleanView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
-        .sheet(item: $previewPhoto) { photo in
-            PhotoPreview(photo: photo, isSelected: selectedIDs.contains(photo.id)) {
-                toggle(photo)
+        .assetPreview(
+            $previewPhoto,
+            isSelected: { selectedIDs.contains($0) }
+        ) { wrapped in
+            if selectedIDs.contains(wrapped.id) {
+                selectedIDs.remove(wrapped.id)
+            } else {
+                selectedIDs.insert(wrapped.id)
             }
-            .presentationDetents([.fraction(0.9), .large])
-            .presentationDragIndicator(.visible)
         }
         .alert("delete.failed", isPresented: Binding(
             get: { deletionError != nil },
@@ -1046,6 +1061,7 @@ struct AssetSwipeCleanView: View {
     @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var operationError: String?
     @State private var showDeleteConfirmation = false
+    @State private var previewAsset: IdentifiablePHAsset?
 
     private var sourceAssets: [PHAsset] {
         switch category.kind {
@@ -1104,6 +1120,7 @@ struct AssetSwipeCleanView: View {
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
         .background(Color.cleanerBackground)
+        .assetPreview($previewAsset)
         .alert("operation.failed", isPresented: Binding(
             get: { operationError != nil },
             set: { if !$0 { operationError = nil } }
@@ -1155,6 +1172,7 @@ struct AssetSwipeCleanView: View {
                     .aspectRatio(0.84, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                     .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+                    .onTapGesture { previewAsset = IdentifiablePHAsset(asset: asset) }
             } else {
                 PhotoThumbnailView(
                     asset: asset,
@@ -1168,6 +1186,7 @@ struct AssetSwipeCleanView: View {
                 .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
                 .offset(offset)
                 .rotationEffect(.degrees(Double(offset.width / 18)))
+                .onTapGesture { previewAsset = IdentifiablePHAsset(asset: asset) }
                 .gesture(
                     DragGesture()
                         .onChanged { offset = $0.translation }
@@ -1347,8 +1366,6 @@ private struct InteractiveVideoPreview: View {
     @EnvironmentObject private var library: PhotoLibraryService
     let asset: PHAsset
 
-    @State private var player: AVPlayer?
-    @State private var requestID: PHImageRequestID?
     @State private var scale: CGFloat = 1
     @State private var settledScale: CGFloat = 1
     @State private var offset: CGSize = .zero
@@ -1358,16 +1375,11 @@ private struct InteractiveVideoPreview: View {
         ZStack(alignment: .topLeading) {
             Color.black
 
-            if let player {
-                VideoPlayer(player: player)
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .simultaneousGesture(magnifyGesture)
-                    .simultaneousGesture(panGesture)
-            } else {
-                ProgressView()
-                    .tint(.white)
-            }
+            VideoPreviewSurface(asset: asset)
+                .scaleEffect(scale)
+                .offset(offset)
+                .simultaneousGesture(magnifyGesture)
+                .simultaneousGesture(panGesture)
 
             if scale > 1.01 {
                 Button {
@@ -1384,15 +1396,6 @@ private struct InteractiveVideoPreview: View {
             }
         }
         .clipped()
-        .onAppear {
-            requestPlayer()
-        }
-        .onDisappear {
-            player?.pause()
-            if let requestID {
-                library.cancelImageRequest(requestID)
-            }
-        }
     }
 
     private var magnifyGesture: some Gesture {
@@ -1425,12 +1428,456 @@ private struct InteractiveVideoPreview: View {
             }
     }
 
-    private func requestPlayer() {
-        requestID = library.requestPlayerItem(for: asset) { item in
-            guard let item else { return }
-            let newPlayer = AVPlayer(playerItem: item)
-            player = newPlayer
-            newPlayer.play()
+    private func resetTransform() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            scale = 1
+            settledScale = 1
+            offset = .zero
+            settledOffset = .zero
+        }
+    }
+}
+
+struct VideoPreviewSurface: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let asset: PHAsset
+
+    @State private var player: AVPlayer?
+    @State private var requestID: PHImageRequestID?
+    @State private var timeObserver: Any?
+    @State private var currentTime: Double = 0
+    @State private var duration: Double = 0
+    @State private var isPlaying = false
+    @State private var isScrubbing = false
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black
+            if let player {
+                VideoPlayer(player: player)
+                    .overlay {
+                        Button {
+                            togglePlayback()
+                        } label: {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 72, height: 72)
+                                .background(.black.opacity(0.42), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                videoControls(player: player)
+            } else {
+                ProgressView().tint(.white)
+            }
+        }
+        .onAppear {
+            requestID = library.requestPlayerItem(for: asset) { item in
+                guard let item else { return }
+                let newPlayer = AVPlayer(playerItem: item)
+                player = newPlayer
+                duration = asset.duration
+                addTimeObserver(to: newPlayer)
+                newPlayer.play()
+                isPlaying = true
+            }
+        }
+        .onDisappear {
+            player?.pause()
+            if let player, let timeObserver {
+                player.removeTimeObserver(timeObserver)
+            }
+            timeObserver = nil
+            if let requestID {
+                library.cancelImageRequest(requestID)
+            }
+        }
+    }
+
+    private func videoControls(player: AVPlayer) -> some View {
+        VStack(spacing: 8) {
+            Slider(
+                value: Binding(
+                    get: { currentTime },
+                    set: { newValue in
+                        currentTime = newValue
+                        isScrubbing = true
+                    }
+                ),
+                in: 0...max(duration, 0.1),
+                onEditingChanged: { editing in
+                    isScrubbing = editing
+                    guard !editing else { return }
+                    player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
+                }
+            )
+            HStack {
+                Text(formatTime(currentTime))
+                Spacer()
+                Text(formatTime(duration))
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.82))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
+        .padding(12)
+    }
+
+    private func addTimeObserver(to player: AVPlayer) {
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+        }
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
+            queue: .main
+        ) { time in
+            guard !isScrubbing else { return }
+            currentTime = time.seconds.isFinite ? time.seconds : 0
+            isPlaying = player.timeControlStatus == .playing
+            if let itemDuration = player.currentItem?.duration.seconds,
+               itemDuration.isFinite,
+               itemDuration > 0 {
+                duration = itemDuration
+            }
+        }
+    }
+
+    private func togglePlayback() {
+        guard let player else { return }
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            if duration > 0, currentTime >= duration - 0.1 {
+                player.seek(to: .zero)
+            }
+            player.play()
+            isPlaying = true
+        }
+    }
+
+    private func formatTime(_ value: Double) -> String {
+        guard value.isFinite else { return "0:00" }
+        let seconds = max(Int(value.rounded()), 0)
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+private struct LivePhotoPreview: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let asset: PHAsset
+    let targetSize: CGSize
+
+    @State private var livePhoto: PHLivePhoto?
+    @State private var requestID: PHImageRequestID?
+    @State private var playTrigger = 0
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let livePhoto {
+                LivePhotoSurface(livePhoto: livePhoto, playTrigger: playTrigger)
+            } else {
+                PhotoThumbnailView(asset: asset, targetSize: targetSize)
+            }
+
+            Label("LIVE", systemImage: "livephoto")
+                .font(.caption2.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.45), in: Capsule())
+                .padding(10)
+        }
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 0.18) {
+            playTrigger += 1
+        }
+        .onAppear {
+            guard livePhoto == nil else { return }
+            requestID = library.requestLivePhoto(
+                for: asset,
+                targetSize: targetSize
+            ) { result in
+                livePhoto = result
+            }
+        }
+        .onDisappear {
+            if let requestID {
+                library.cancelImageRequest(requestID)
+            }
+        }
+    }
+}
+
+private struct LivePhotoSurface: UIViewRepresentable {
+    let livePhoto: PHLivePhoto
+    let playTrigger: Int
+
+    func makeUIView(context: Context) -> PHLivePhotoView {
+        let view = PHLivePhotoView()
+        view.contentMode = .scaleAspectFit
+        view.livePhoto = livePhoto
+        return view
+    }
+
+    func updateUIView(_ view: PHLivePhotoView, context: Context) {
+        view.livePhoto = livePhoto
+        if context.coordinator.lastPlayTrigger != playTrigger {
+            context.coordinator.lastPlayTrigger = playTrigger
+            view.startPlayback(with: .full)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var lastPlayTrigger = 0
+    }
+}
+
+extension View {
+    func assetPreview(
+        _ item: Binding<IdentifiablePHAsset?>,
+        isSelected: @escaping (String) -> Bool = { _ in false },
+        onToggle: @escaping (IdentifiablePHAsset) -> Void = { _ in }
+    ) -> some View {
+        self.overlay {
+            if let asset = item.wrappedValue {
+                AssetPreviewView(
+                    asset: asset.asset,
+                    onClose: { withAnimation { item.wrappedValue = nil } },
+                    isSelected: isSelected(asset.id),
+                    onToggle: { onToggle(asset) }
+                )
+                .id(asset.id)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.9).combined(with: .opacity),
+                    removal: .opacity
+                ))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: item.wrappedValue?.id)
+    }
+}
+
+struct AssetPreviewView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let asset: PHAsset
+    var onClose: () -> Void = {}
+    var isSelected: Bool = false
+    var onToggle: (() -> Void)? = nil
+
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var settledOffset: CGSize = .zero
+    @State private var showDetail: Bool = false
+
+    private static let border: CGFloat = 20
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.85)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { dismiss() }
+
+            GeometryReader { geo in
+                let fitted = mediaFittedSize(in: geo.size)
+                mediaContent
+                    .frame(width: fitted.width, height: fitted.height)
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                    .gesture(magnifyGesture)
+                    .simultaneousGesture(panGesture)
+                    .onTapGesture { dismiss() }
+                    .onTapGesture(count: 2) { handleDoubleTap() }
+            }
+            .ignoresSafeArea()
+
+            if scale > 1.01 {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Button { resetTransform() } label: {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
+                    }
+                    .padding(16)
+                    Spacer()
+                }
+                .transition(.opacity)
+            }
+
+            VStack {
+                Spacer()
+                HStack {
+                    detailButton
+                    Spacer()
+                }
+                .padding(20)
+            }
+
+            if showDetail {
+                detailCard
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mediaContent: some View {
+        if asset.mediaType == .video {
+            VideoPreviewSurface(asset: asset)
+        } else if asset.mediaSubtypes.contains(.photoLive) {
+            LivePhotoPreview(
+                asset: asset,
+                targetSize: CGSize(width: 1080, height: 1080)
+            )
+        } else {
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 1080, height: 1080)
+            )
+        }
+    }
+
+    private var detailButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                showDetail.toggle()
+            }
+        } label: {
+            Image(systemName: showDetail ? "xmark" : "ellipsis")
+                .font(.title3.bold())
+                .foregroundStyle(.white)
+                .frame(width: 50, height: 50)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .accessibilityLabel(Text(showDetail ? "hide.detail" : "show.detail"))
+    }
+
+    private var detailCard: some View {
+        VStack {
+            Spacer()
+            VStack(alignment: .leading, spacing: 14) {
+                InfoPair(
+                    title: String(localized: "photo.time"),
+                    value: asset.creationDate?
+                        .formatted(date: .abbreviated, time: .shortened) ?? "-"
+                )
+                InfoPair(
+                    title: String(localized: "photo.model"),
+                    value: "\(asset.pixelWidth) x \(asset.pixelHeight)"
+                )
+                InfoPair(
+                    title: String(localized: "photo.location"),
+                    value: asset.location == nil
+                        ? "-"
+                        : String(localized: "location.available")
+                )
+                if let onToggle {
+                    Divider().padding(.vertical, 4)
+                    Button(
+                        isSelected
+                            ? String(localized: "unselect")
+                            : String(localized: "select")
+                    ) { onToggle() }
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(
+                            Color.cleanerBlue,
+                            in: RoundedRectangle(cornerRadius: 12)
+                        )
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .padding(.horizontal, 20)
+            .padding(.bottom, 100)
+        }
+    }
+
+    private func mediaFittedSize(in container: CGSize) -> CGSize {
+        let maxW = max(container.width - Self.border * 2, 1)
+        let maxH = max(container.height - Self.border * 2, 1)
+        let aspect: CGFloat
+        if asset.pixelWidth > 0, asset.pixelHeight > 0 {
+            aspect = CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
+        } else {
+            aspect = 1
+        }
+        if aspect >= 1 {
+            let w = maxW
+            let h = w / aspect
+            return h <= maxH
+                ? CGSize(width: w, height: h)
+                : CGSize(width: maxH * aspect, height: maxH)
+        } else {
+            let h = maxH
+            let w = h * aspect
+            return w <= maxW
+                ? CGSize(width: w, height: h)
+                : CGSize(width: maxW, height: maxW / aspect)
+        }
+    }
+
+    private func dismiss() {
+        onClose()
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                scale = min(max(settledScale * value.magnification, 0.65), 4)
+                if scale < 1 {
+                    offset = .zero
+                }
+            }
+            .onEnded { _ in
+                if scale <= 1 {
+                    settledOffset = .zero
+                    resetTransform()
+                } else {
+                    settledScale = scale
+                }
+            }
+    }
+
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard scale > 1.01 else { return }
+                offset = CGSize(
+                    width: settledOffset.width + value.translation.width,
+                    height: settledOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                settledOffset = offset
+            }
+    }
+
+    private func handleDoubleTap() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            if scale > 1.01 {
+                resetTransform()
+            } else {
+                scale = 2
+                settledScale = 2
+            }
         }
     }
 
@@ -1483,6 +1930,84 @@ struct VideoCompressView: View {
         }
         .background(Color.cleanerBackground)
         .animatedTabBarVisible()
+    }
+}
+
+struct EmptyAlbumCleanView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    @State private var deletionError: String?
+    @State private var showDeleteConfirmation = false
+    @State private var pendingDeleteID: String?
+    @State private var pendingDeleteTitle: String?
+
+    var body: some View {
+        Group {
+            if library.emptyAlbums.isEmpty {
+                ContentUnavailableView(
+                    "No Empty Albums",
+                    systemImage: "folder",
+                    description: Text("All albums contain at least one item.")
+                )
+            } else {
+                List {
+                    ForEach(library.emptyAlbums, id: \.id) { album in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(album.title)
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Empty")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                pendingDeleteID = album.id
+                                pendingDeleteTitle = album.title
+                                showDeleteConfirmation = true
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+        }
+        .navigationTitle(String(localized: "category.empty.albums"))
+        .navigationBarTitleDisplayMode(.inline)
+        .animatedTabBarHidden()
+        .background(Color.cleanerBackground)
+        .confirmationDialog(
+            "Delete Album?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let id = pendingDeleteID else { return }
+                Task {
+                    do {
+                        try await library.deleteEmptyAlbum(with: id)
+                    } catch {
+                        deletionError = error.localizedDescription
+                    }
+                }
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(pendingDeleteTitle.map { "\"\($0)\" will be deleted." } ?? "")
+        }
+        .alert("delete.failed", isPresented: Binding(
+            get: { deletionError != nil },
+            set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deletionError ?? "")
+        }
     }
 }
 
@@ -1671,14 +2196,17 @@ private struct CleanerHeader: View {
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.title2.bold())
-            .foregroundStyle(Color.cleanerText)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
+        Color.clear
+            .frame(height: 0)
+            .frame(maxWidth: .infinity)
             .padding(.top, 26)
             .padding(.bottom, 12)
             .background(.white)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.cleanerBorder)
+                    .frame(height: 0.5)
+            }
     }
 }
 
@@ -1815,7 +2343,7 @@ private struct SimilarGroup: View {
     let title: String
     let group: SimilarAssetGroup
     @Binding var selectedIDs: Set<String>
-    @Binding var previewPhoto: SimilarAsset?
+    @Binding var previewPhoto: IdentifiablePHAsset?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1838,7 +2366,7 @@ private struct SimilarGroup: View {
                 LazyHStack(spacing: 12) {
                     ForEach(group.assets) { photo in
                         SimilarPhotoCard(photo: photo, selected: selectedIDs.contains(photo.id)) {
-                            previewPhoto = photo
+                            previewPhoto = IdentifiablePHAsset(asset: photo.asset)
                         } toggle: {
                             if selectedIDs.contains(photo.id) {
                                 selectedIDs.remove(photo.id)
@@ -1906,62 +2434,6 @@ private struct SimilarPhotoCard: View {
             .padding(.trailing, 2)
         }
         .frame(width: cardWidth, height: 146)
-    }
-}
-
-private struct PhotoPreview: View {
-    let photo: SimilarAsset
-    let isSelected: Bool
-    let toggle: () -> Void
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                PhotoThumbnailView(
-                    asset: photo.asset,
-                    targetSize: CGSize(width: 720, height: 540)
-                )
-                    .aspectRatio(4 / 3, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-
-                VStack(spacing: 12) {
-                    InfoPair(
-                        title: String(localized: "photo.time"),
-                        value: photo.asset.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "-"
-                    )
-                    InfoPair(
-                        title: String(localized: "photo.location"),
-                        value: photo.asset.location == nil ? "-" : String(localized: "location.available")
-                    )
-                    InfoPair(
-                        title: String(localized: "photo.model"),
-                        value: "\(photo.asset.pixelWidth) x \(photo.asset.pixelHeight)"
-                    )
-                    InfoPair(
-                        title: String(localized: "photo.size"),
-                        value: photo.isBest ? String(localized: "burst.best.pick") : "-"
-                    )
-                }
-                .padding(18)
-                .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
-                .padding(.horizontal, 20)
-
-                Button(isSelected ? String(localized: "unselect") : String(localized: "select")) {
-                    toggle()
-                }
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 50)
-                .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-            }
-        }
-        .background(Color.cleanerBackground)
     }
 }
 
@@ -2199,6 +2671,17 @@ struct CleanerCategory: Identifiable {
             color: .gray,
             icon: "record.circle",
             kind: .recording
+        )
+    }
+
+    static func emptyAlbums(count: Int) -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.empty.albums"),
+            count: count,
+            size: "",
+            color: Color(red: 0.733, green: 0.420, blue: 0.851),
+            icon: "folder",
+            kind: .emptyAlbum
         )
     }
 }

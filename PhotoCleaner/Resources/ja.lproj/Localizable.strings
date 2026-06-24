@@ -105,6 +105,8 @@
 "cleanup.complete" = "整理完了";
 "cleanup.complete.description" = "このカテゴリの写真をすべて確認しました。";
 "operation.failed" = "操作に失敗しました";
+"show.detail" = "詳細を表示";
+"hide.detail" = "詳細を非表示";
 "library.media" = "ライブラリ内のメディア";
 "library.summary.format" = "写真 %d 枚、動画 %d 本";
 "photo.access.requesting" = "写真へのアクセスを要求中";

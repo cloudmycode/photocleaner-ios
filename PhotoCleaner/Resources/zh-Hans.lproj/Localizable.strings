@@ -105,6 +105,8 @@
 "cleanup.complete" = "清理完成";
 "cleanup.complete.description" = "这个分类中的照片已经全部检查完成。";
 "operation.failed" = "操作失败";
+"show.detail" = "显示详情";
+"hide.detail" = "隐藏详情";
 "library.media" = "相册媒体";
 "library.summary.format" = "%d 张照片，%d 个视频";
 "photo.access.requesting" = "正在请求相册权限";

@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		AA0000000000000000000001 /* PhotoCleanerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* PhotoCleanerApp.swift */; };
-		AA0000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000012 /* ContentView.swift */; };
+		AA0000000000000000000002 /*  PhotoPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000012 /*  PhotoPreview.swift */; };
 		AA0000000000000000000003 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000020 /* Localizable.strings */; };
 		AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* PhotoLibraryService.swift */; };
 		AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* SimilarAnalysisCache.swift */; };
@@ -16,7 +16,7 @@
 
 /* Begin PBXFileReference section */
 		AA0000000000000000000011 /* PhotoCleanerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoCleanerApp.swift; sourceTree = "<group>"; };
-		AA0000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000012 /*  PhotoPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = " PhotoPreview.swift"; sourceTree = "<group>"; };
 		AA0000000000000000000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000000000000000000014 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		AA0000000000000000000015 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -49,7 +49,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000011 /* PhotoCleanerApp.swift */,
-				AA0000000000000000000012 /* ContentView.swift */,
+				AA0000000000000000000012 /*  PhotoPreview.swift */,
 				AA0000000000000000000018 /* PhotoLibraryService.swift */,
 				AA0000000000000000000019 /* SimilarAnalysisCache.swift */,
 				AA0000000000000000000013 /* Info.plist */,
@@ -147,7 +147,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000001 /* PhotoCleanerApp.swift in Sources */,
-				AA0000000000000000000002 /* ContentView.swift in Sources */,
+				AA0000000000000000000002 /*  PhotoPreview.swift in Sources */,
 				AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */,
 				AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */,
 			);

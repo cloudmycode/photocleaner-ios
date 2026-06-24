@@ -105,6 +105,8 @@
 "cleanup.complete" = "Cleanup Complete";
 "cleanup.complete.description" = "You have reviewed all photos in this category.";
 "operation.failed" = "Operation Failed";
+"show.detail" = "Show details";
+"hide.detail" = "Hide details";
 "library.media" = "Library Media";
 "library.summary.format" = "%d photos and %d videos";
 "photo.access.requesting" = "Requesting photo access";
