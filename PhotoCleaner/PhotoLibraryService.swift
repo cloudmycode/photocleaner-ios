@@ -42,6 +42,7 @@ private struct LibrarySnapshot {
     let monthGroups: [PhotoMonthGroup]
     let burstCandidates: [[PHAsset]]
     let initialBurstGroups: [SimilarAssetGroup]
+    let mediaStorageBytes: Int64
 }
 
 @MainActor
@@ -70,6 +71,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var duplicateScanProgress: (current: Int, total: Int)?
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
+    @Published private(set) var mediaStorageBytes: Int64 = 0
 
     let imageManager = PHCachingImageManager()
 
@@ -117,6 +119,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             photoCount = 0
             videoCount = 0
             screenshotCount = 0
+            mediaStorageBytes = 0
             screenshotAssets = []
             videoAssets = []
             largeVideoAssets = []
@@ -140,6 +143,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             screenRecordingAssets = snapshot.screenRecordingAssets
             monthGroups = snapshot.monthGroups
             burstGroups = snapshot.initialBurstGroups
+            mediaStorageBytes = snapshot.mediaStorageBytes
 
             await restoreMonthlyReviewProgress()
             await Task.yield()
@@ -538,6 +542,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             .sorted {
                 ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
             }
+        let mediaStorageBytes = (imageAssets + videos)
+            .reduce(Int64(0)) { $0 + assetStorageBytes($1) }
 
         return LibrarySnapshot(
             imageAssets: imageAssets,
@@ -547,8 +553,18 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             screenRecordingAssets: screenRecordingAssets,
             monthGroups: monthGroups,
             burstCandidates: burstCandidates,
-            initialBurstGroups: initialBurstGroups
+            initialBurstGroups: initialBurstGroups,
+            mediaStorageBytes: mediaStorageBytes
         )
+    }
+
+    nonisolated private static func assetStorageBytes(_ asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
+            if let fileSize = resource.value(forKey: "fileSize") as? NSNumber {
+                return total + fileSize.int64Value
+            }
+            return total
+        }
     }
 
     nonisolated private static func makeMonthGroups(from assets: [PHAsset]) -> [PhotoMonthGroup] {

@@ -65,13 +65,20 @@ struct QuickCleanView: View {
         ]
     }
 
+    private var formattedMediaStorage: String {
+        ByteCountFormatter.string(
+            fromByteCount: library.mediaStorageBytes,
+            countStyle: .file
+        )
+    }
+
     var body: some View {
         CleanerScroll {
             CleanerHeader(title: String(localized: "app.name"))
             if hasPhotoAccess {
                 StorageCard(
-                    label: String(localized: "library.media"),
-                    value: "\(library.photoCount + library.videoCount)",
+                    label: String(localized: "media.storage"),
+                    value: formattedMediaStorage,
                     description: String.localizedStringWithFormat(
                         String(localized: "library.summary.format"),
                         library.photoCount,
