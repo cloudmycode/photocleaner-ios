@@ -42,6 +42,10 @@ private enum AppTab {
     case settings
 }
 
+private func formattedStorage(_ bytes: Int64) -> String {
+    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+}
+
 struct QuickCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var toastMessage: String?
@@ -49,25 +53,40 @@ struct QuickCleanView: View {
 
     private var photoItems: [CleanerCategory] {
         [
-            CleanerCategory.duplicates(count: library.duplicateCandidateCount),
-            CleanerCategory.bursts(count: library.burstCandidateCount),
-            CleanerCategory.screenshots(count: library.screenshotCount)
+            CleanerCategory.duplicates(
+                count: library.duplicateCandidateCount,
+                size: formattedStorage(library.duplicateCandidateStorageBytes)
+            ),
+            CleanerCategory.bursts(
+                count: library.burstCandidateCount,
+                size: formattedStorage(library.burstCandidateStorageBytes)
+            ),
+            CleanerCategory.screenshots(
+                count: library.screenshotCount,
+                size: formattedStorage(library.screenshotStorageBytes)
+            )
         ]
     }
 
     private var videoItems: [CleanerCategory] {
         [
-            CleanerCategory.allVideos(count: library.videoCount),
-            CleanerCategory.largeVideos(count: library.largeVideoCount),
-            CleanerCategory.screenRecordings(count: library.screenRecordingCount)
+            CleanerCategory.allVideos(
+                count: library.videoCount,
+                size: formattedStorage(library.videoStorageBytes)
+            ),
+            CleanerCategory.largeVideos(
+                count: library.largeVideoCount,
+                size: formattedStorage(library.largeVideoStorageBytes)
+            ),
+            CleanerCategory.screenRecordings(
+                count: library.screenRecordingCount,
+                size: formattedStorage(library.screenRecordingStorageBytes)
+            )
         ]
     }
 
     private var formattedMediaStorage: String {
-        ByteCountFormatter.string(
-            fromByteCount: library.mediaStorageBytes,
-            countStyle: .file
-        )
+        formattedStorage(library.mediaStorageBytes)
     }
 
     var body: some View {
@@ -737,6 +756,11 @@ private struct MonthAssetRow: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
+            Text(formattedStorage(group.storageBytes))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.cleanerText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.tertiary)
@@ -2112,66 +2136,66 @@ struct CleanerCategory: Identifiable {
         )
     }
 
-    static func duplicates(count: Int) -> CleanerCategory {
+    static func duplicates(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
             title: String(localized: "category.duplicates"),
             count: count,
-            size: "",
+            size: size,
             color: .orange,
             icon: "rectangle.on.rectangle",
             kind: .duplicate
         )
     }
 
-    static func bursts(count: Int) -> CleanerCategory {
+    static func bursts(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
             title: String(localized: "category.bursts"),
             count: count,
-            size: "",
+            size: size,
             color: .cleanerGreen,
             icon: "camera.on.rectangle",
             kind: .burst
         )
     }
 
-    static func screenshots(count: Int) -> CleanerCategory {
+    static func screenshots(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
             title: String(localized: "category.screenshots"),
             count: count,
-            size: "",
+            size: size,
             color: .red,
             icon: "iphone",
             kind: .screenshot
         )
     }
 
-    static func allVideos(count: Int) -> CleanerCategory {
+    static func allVideos(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
             title: String(localized: "category.all.videos"),
             count: count,
-            size: "",
+            size: size,
             color: .cyan,
             icon: "video",
             kind: .video
         )
     }
 
-    static func largeVideos(count: Int) -> CleanerCategory {
+    static func largeVideos(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
             title: String(localized: "category.large.videos"),
             count: count,
-            size: "",
+            size: size,
             color: .orange,
             icon: "video.fill",
             kind: .largeVideo
         )
     }
 
-    static func screenRecordings(count: Int) -> CleanerCategory {
+    static func screenRecordings(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
             title: String(localized: "category.screen.recordings"),
             count: count,
-            size: "",
+            size: size,
             color: .gray,
             icon: "record.circle",
             kind: .recording

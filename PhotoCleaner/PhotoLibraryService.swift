@@ -31,6 +31,7 @@ struct PhotoMonthGroup: Identifiable {
     let id: String
     let date: Date
     let assets: [PHAsset]
+    let storageBytes: Int64
 }
 
 private struct LibrarySnapshot {
@@ -43,9 +44,31 @@ private struct LibrarySnapshot {
     let burstCandidates: [[PHAsset]]
     let initialBurstGroups: [SimilarAssetGroup]
     let mediaStorageBytes: Int64
+    let videoStorageBytes: Int64
+    let screenshotStorageBytes: Int64
+    let largeVideoStorageBytes: Int64
+    let screenRecordingStorageBytes: Int64
+    let initialBurstCandidateStorageBytes: Int64
 }
 
 private struct HomeLibrarySummary: Codable {
+    let photoCount: Int
+    let videoCount: Int
+    let screenshotCount: Int
+    let largeVideoCount: Int
+    let screenRecordingCount: Int
+    let duplicateCandidateCount: Int
+    let burstCandidateCount: Int
+    let mediaStorageBytes: Int64
+    let videoStorageBytes: Int64
+    let screenshotStorageBytes: Int64
+    let largeVideoStorageBytes: Int64
+    let screenRecordingStorageBytes: Int64
+    let duplicateCandidateStorageBytes: Int64
+    let burstCandidateStorageBytes: Int64
+}
+
+private struct LegacyHomeLibrarySummary: Codable {
     let photoCount: Int
     let videoCount: Int
     let screenshotCount: Int
@@ -89,6 +112,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var screenRecordingCount = 0
     @Published private(set) var duplicateCandidateCount = 0
     @Published private(set) var burstCandidateCount = 0
+    @Published private(set) var videoStorageBytes: Int64 = 0
+    @Published private(set) var screenshotStorageBytes: Int64 = 0
+    @Published private(set) var largeVideoStorageBytes: Int64 = 0
+    @Published private(set) var screenRecordingStorageBytes: Int64 = 0
+    @Published private(set) var duplicateCandidateStorageBytes: Int64 = 0
+    @Published private(set) var burstCandidateStorageBytes: Int64 = 0
 
     let imageManager = PHCachingImageManager()
 
@@ -131,10 +160,28 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     }
 
     private func restoreHomeSummary() {
-        guard let data = UserDefaults.standard.data(forKey: Self.homeSummaryKey),
-              let summary = try? JSONDecoder().decode(HomeLibrarySummary.self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: Self.homeSummaryKey) else {
             return
         }
+        if let summary = try? JSONDecoder().decode(HomeLibrarySummary.self, from: data) {
+            applyHomeSummary(summary)
+            return
+        }
+        if let summary = try? JSONDecoder().decode(LegacyHomeLibrarySummary.self, from: data) {
+            photoCount = summary.photoCount
+            videoCount = summary.videoCount
+            screenshotCount = summary.screenshotCount
+            largeVideoCount = summary.largeVideoCount
+            screenRecordingCount = summary.screenRecordingCount
+            duplicateCandidateCount = summary.duplicateCandidateCount
+            burstCandidateCount = summary.burstCandidateCount
+            mediaStorageBytes = summary.mediaStorageBytes
+            hasHomeSummary = true
+            isUsingCachedHomeSummary = true
+        }
+    }
+
+    private func applyHomeSummary(_ summary: HomeLibrarySummary) {
         photoCount = summary.photoCount
         videoCount = summary.videoCount
         screenshotCount = summary.screenshotCount
@@ -143,6 +190,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         duplicateCandidateCount = summary.duplicateCandidateCount
         burstCandidateCount = summary.burstCandidateCount
         mediaStorageBytes = summary.mediaStorageBytes
+        videoStorageBytes = summary.videoStorageBytes
+        screenshotStorageBytes = summary.screenshotStorageBytes
+        largeVideoStorageBytes = summary.largeVideoStorageBytes
+        screenRecordingStorageBytes = summary.screenRecordingStorageBytes
+        duplicateCandidateStorageBytes = summary.duplicateCandidateStorageBytes
+        burstCandidateStorageBytes = summary.burstCandidateStorageBytes
         hasHomeSummary = true
         isUsingCachedHomeSummary = true
     }
@@ -156,7 +209,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             screenRecordingCount: screenRecordingCount,
             duplicateCandidateCount: duplicateCandidateCount,
             burstCandidateCount: burstCandidateCount,
-            mediaStorageBytes: mediaStorageBytes
+            mediaStorageBytes: mediaStorageBytes,
+            videoStorageBytes: videoStorageBytes,
+            screenshotStorageBytes: screenshotStorageBytes,
+            largeVideoStorageBytes: largeVideoStorageBytes,
+            screenRecordingStorageBytes: screenRecordingStorageBytes,
+            duplicateCandidateStorageBytes: duplicateCandidateStorageBytes,
+            burstCandidateStorageBytes: burstCandidateStorageBytes
         )
         guard let data = try? JSONEncoder().encode(summary) else { return }
         UserDefaults.standard.set(data, forKey: Self.homeSummaryKey)
@@ -177,6 +236,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 duplicateCandidateCount = 0
                 burstCandidateCount = 0
                 mediaStorageBytes = 0
+                videoStorageBytes = 0
+                screenshotStorageBytes = 0
+                largeVideoStorageBytes = 0
+                screenRecordingStorageBytes = 0
+                duplicateCandidateStorageBytes = 0
+                burstCandidateStorageBytes = 0
             }
             duplicateScanProgress = nil
 
@@ -197,7 +262,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             monthGroups = snapshot.monthGroups
             burstGroups = snapshot.initialBurstGroups
             burstCandidateCount = Self.cleanableCount(in: snapshot.initialBurstGroups)
+            burstCandidateStorageBytes = snapshot.initialBurstCandidateStorageBytes
             mediaStorageBytes = snapshot.mediaStorageBytes
+            videoStorageBytes = snapshot.videoStorageBytes
+            screenshotStorageBytes = snapshot.screenshotStorageBytes
+            largeVideoStorageBytes = snapshot.largeVideoStorageBytes
+            screenRecordingStorageBytes = snapshot.screenRecordingStorageBytes
             persistHomeSummary()
 
             await restoreMonthlyReviewProgress()
@@ -236,6 +306,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                         ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
                     }
                     burstCandidateCount = Self.cleanableCount(in: burstGroups)
+                    burstCandidateStorageBytes = Self.cleanableStorageBytes(in: burstGroups)
                 }
                 scanState = .analyzing(current: index + 1, total: candidates.count)
                 await Task.yield()
@@ -448,12 +519,32 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
             }
         duplicateCandidateCount = Self.cleanableCount(in: duplicateGroups)
+        duplicateCandidateStorageBytes = Self.cleanableStorageBytes(in: duplicateGroups)
         try? await duplicateCache.replace(with: activeCache)
         duplicateScanProgress = nil
     }
 
     nonisolated private static func cleanableCount(in groups: [SimilarAssetGroup]) -> Int {
         groups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
+    }
+
+    nonisolated private static func cleanableStorageBytes(in groups: [SimilarAssetGroup]) -> Int64 {
+        groups.reduce(Int64(0)) { total, group in
+            total + group.assets
+                .filter { !$0.isBest }
+                .reduce(Int64(0)) { $0 + assetStorageBytes($1.asset) }
+        }
+    }
+
+    nonisolated private static func cleanableStorageBytes(
+        in groups: [SimilarAssetGroup],
+        storageByID: [String: Int64]
+    ) -> Int64 {
+        groups.reduce(Int64(0)) { total, group in
+            total + group.assets
+                .filter { !$0.isBest }
+                .reduce(Int64(0)) { $0 + (storageByID[$1.id] ?? 0) }
+        }
     }
 
     private func analyzeBurstGroup(_ assets: [PHAsset]) async -> SimilarAssetGroup? {
@@ -578,6 +669,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     nonisolated private static func makeLibrarySnapshot() -> LibrarySnapshot {
         let imageAssets = fetchImageAssets()
         let videos = fetchVideoAssets()
+        let imageStorageByID = storageMap(for: imageAssets)
+        let videoStorageByID = storageMap(for: videos)
         let screenshotAssets = Array(
             imageAssets
                 .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
@@ -594,7 +687,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 .filter { $0.mediaSubtypes.contains(.videoScreenRecording) }
                 .reversed()
         )
-        let monthGroups = makeMonthGroups(from: imageAssets)
+        let monthGroups = makeMonthGroups(
+            from: imageAssets,
+            storageByID: imageStorageByID
+        )
         let burstCandidates = continuousShotCandidateGroups(
             assets: imageAssets,
             maximumAdjacentInterval: fallbackShotInterval,
@@ -605,8 +701,24 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             .sorted {
                 ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
             }
-        let mediaStorageBytes = (imageAssets + videos)
-            .reduce(Int64(0)) { $0 + assetStorageBytes($1) }
+        let imageStorageBytes = imageStorageByID.values.reduce(Int64(0), +)
+        let videoStorageBytes = videoStorageByID.values.reduce(Int64(0), +)
+        let screenshotStorageBytes = storageBytes(
+            for: screenshotAssets,
+            storageByID: imageStorageByID
+        )
+        let largeVideoStorageBytes = storageBytes(
+            for: largeVideoAssets,
+            storageByID: videoStorageByID
+        )
+        let screenRecordingStorageBytes = storageBytes(
+            for: screenRecordingAssets,
+            storageByID: videoStorageByID
+        )
+        let burstCandidateStorageBytes = cleanableStorageBytes(
+            in: initialBurstGroups,
+            storageByID: imageStorageByID
+        )
 
         return LibrarySnapshot(
             imageAssets: imageAssets,
@@ -617,8 +729,26 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             monthGroups: monthGroups,
             burstCandidates: burstCandidates,
             initialBurstGroups: initialBurstGroups,
-            mediaStorageBytes: mediaStorageBytes
+            mediaStorageBytes: imageStorageBytes + videoStorageBytes,
+            videoStorageBytes: videoStorageBytes,
+            screenshotStorageBytes: screenshotStorageBytes,
+            largeVideoStorageBytes: largeVideoStorageBytes,
+            screenRecordingStorageBytes: screenRecordingStorageBytes,
+            initialBurstCandidateStorageBytes: burstCandidateStorageBytes
         )
+    }
+
+    nonisolated private static func storageMap(for assets: [PHAsset]) -> [String: Int64] {
+        Dictionary(uniqueKeysWithValues: assets.map {
+            ($0.localIdentifier, assetStorageBytes($0))
+        })
+    }
+
+    nonisolated private static func storageBytes(
+        for assets: [PHAsset],
+        storageByID: [String: Int64]
+    ) -> Int64 {
+        assets.reduce(Int64(0)) { $0 + (storageByID[$1.localIdentifier] ?? 0) }
     }
 
     nonisolated private static func assetStorageBytes(_ asset: PHAsset) -> Int64 {
@@ -630,7 +760,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
-    nonisolated private static func makeMonthGroups(from assets: [PHAsset]) -> [PhotoMonthGroup] {
+    nonisolated private static func makeMonthGroups(
+        from assets: [PHAsset],
+        storageByID: [String: Int64]
+    ) -> [PhotoMonthGroup] {
         let calendar = Calendar.current
         let grouped = Dictionary(grouping: assets) { asset in
             calendar.date(
@@ -642,7 +775,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 PhotoMonthGroup(
                     id: String(date.timeIntervalSince1970),
                     date: date,
-                    assets: Array(assets.reversed())
+                    assets: Array(assets.reversed()),
+                    storageBytes: storageBytes(for: assets, storageByID: storageByID)
                 )
             }
             .sorted { $0.date > $1.date }
