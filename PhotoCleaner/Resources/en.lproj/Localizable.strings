@@ -21,6 +21,7 @@
 "category.duplicates" = "Duplicate Photos";
 "category.bursts" = "Burst Photos";
 "category.screenshots" = "Screenshots";
+"category.live.photos" = "Live Photo Slimming";
 "category.low.quality" = "Low Quality";
 "category.all.videos" = "All Videos";
 "category.large.videos" = "Large Videos";
@@ -145,6 +146,14 @@
 "settings.clear.cache.confirm.title" = "Clear Analysis Cache?";
 "settings.clear.cache.confirm.message" = "Duplicate photos and burst recommendations will be analyzed again the next time the app opens.";
 "settings.clear.cache.confirm.action" = "Clear Cache";
+"live.cleanup.empty" = "No Live Photos to Slim";
+"live.cleanup.empty.description" = "No photos with Live Photo motion were found.";
+"live.select.recommended" = "Select recommended";
+"live.convert.selected.format" = "Slim %d photos";
+"live.convert.confirm.title" = "Remove Live motion?";
+"live.convert.confirm.message" = "%d still photos will be kept, and the original Live Photos will be moved to Recently Deleted.";
+"live.convert.confirm.action" = "Convert to Still Photos";
+"live.motion.size.format" = "Motion %@";
 "ai.tag.best.keep" = "AI pick to keep";
 "ai.tag.favorite.keep" = "Favorite, keep";
 "ai.tag.lower.quality" = "Lower quality";

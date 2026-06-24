@@ -57,6 +57,7 @@ private struct LibrarySnapshot {
     let imageAssets: [PHAsset]
     let videoAssets: [PHAsset]
     let screenshotAssets: [PHAsset]
+    let livePhotoAssets: [PHAsset]
     let largeVideoAssets: [PHAsset]
     let screenRecordingAssets: [PHAsset]
     let monthGroups: [PhotoMonthGroup]
@@ -65,6 +66,7 @@ private struct LibrarySnapshot {
     let mediaStorageBytes: Int64
     let videoStorageBytes: Int64
     let screenshotStorageBytes: Int64
+    let livePhotoStorageBytes: Int64
     let largeVideoStorageBytes: Int64
     let screenRecordingStorageBytes: Int64
     let initialBurstCandidateStorageBytes: Int64
@@ -76,6 +78,7 @@ private struct HomeLibrarySummary: Codable {
     let photoCount: Int
     let videoCount: Int
     let screenshotCount: Int
+    let livePhotoCount: Int?
     let largeVideoCount: Int
     let screenRecordingCount: Int
     let duplicateCandidateCount: Int
@@ -83,6 +86,7 @@ private struct HomeLibrarySummary: Codable {
     let mediaStorageBytes: Int64
     let videoStorageBytes: Int64
     let screenshotStorageBytes: Int64
+    let livePhotoStorageBytes: Int64?
     let largeVideoStorageBytes: Int64
     let screenRecordingStorageBytes: Int64
     let duplicateCandidateStorageBytes: Int64
@@ -108,12 +112,14 @@ private struct MonthlyAlbumsCachePayload: Codable {
 
 private struct MediaAssetSnapshot {
     let screenshotAssets: [PHAsset]
+    let livePhotoAssets: [PHAsset]
     let videoAssets: [PHAsset]
     let largeVideoAssets: [PHAsset]
     let screenRecordingAssets: [PHAsset]
     let mediaStorageBytes: Int64
     let videoStorageBytes: Int64
     let screenshotStorageBytes: Int64
+    let livePhotoStorageBytes: Int64
     let largeVideoStorageBytes: Int64
     let screenRecordingStorageBytes: Int64
 }
@@ -133,6 +139,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var videoCount = 0
     @Published private(set) var screenshotCount = 0
     @Published private(set) var screenshotAssets: [PHAsset] = []
+    @Published private(set) var livePhotoAssets: [PHAsset] = []
     @Published private(set) var videoAssets: [PHAsset] = []
     @Published private(set) var largeVideoAssets: [PHAsset] = []
     @Published private(set) var screenRecordingAssets: [PHAsset] = []
@@ -151,10 +158,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var isUsingCachedHomeSummary = false
     @Published private(set) var largeVideoCount = 0
     @Published private(set) var screenRecordingCount = 0
+    @Published private(set) var livePhotoCount = 0
     @Published private(set) var duplicateCandidateCount = 0
     @Published private(set) var burstCandidateCount = 0
     @Published private(set) var videoStorageBytes: Int64 = 0
     @Published private(set) var screenshotStorageBytes: Int64 = 0
+    @Published private(set) var livePhotoStorageBytes: Int64 = 0
     @Published private(set) var largeVideoStorageBytes: Int64 = 0
     @Published private(set) var screenRecordingStorageBytes: Int64 = 0
     @Published private(set) var duplicateCandidateStorageBytes: Int64 = 0
@@ -243,6 +252,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             photoCount = summary.photoCount
             videoCount = summary.videoCount
             screenshotCount = summary.screenshotCount
+            livePhotoCount = 0
             largeVideoCount = summary.largeVideoCount
             screenRecordingCount = summary.screenRecordingCount
             duplicateCandidateCount = summary.duplicateCandidateCount
@@ -299,6 +309,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         photoCount = summary.photoCount
         videoCount = summary.videoCount
         screenshotCount = summary.screenshotCount
+        livePhotoCount = summary.livePhotoCount ?? 0
         largeVideoCount = summary.largeVideoCount
         screenRecordingCount = summary.screenRecordingCount
         duplicateCandidateCount = summary.duplicateCandidateCount
@@ -306,6 +317,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         mediaStorageBytes = summary.mediaStorageBytes
         videoStorageBytes = summary.videoStorageBytes
         screenshotStorageBytes = summary.screenshotStorageBytes
+        livePhotoStorageBytes = summary.livePhotoStorageBytes ?? 0
         largeVideoStorageBytes = summary.largeVideoStorageBytes
         screenRecordingStorageBytes = summary.screenRecordingStorageBytes
         duplicateCandidateStorageBytes = summary.duplicateCandidateStorageBytes
@@ -320,6 +332,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             photoCount: photoCount,
             videoCount: videoCount,
             screenshotCount: screenshotCount,
+            livePhotoCount: livePhotoCount,
             largeVideoCount: largeVideoCount,
             screenRecordingCount: screenRecordingCount,
             duplicateCandidateCount: duplicateCandidateCount,
@@ -327,6 +340,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             mediaStorageBytes: mediaStorageBytes,
             videoStorageBytes: videoStorageBytes,
             screenshotStorageBytes: screenshotStorageBytes,
+            livePhotoStorageBytes: livePhotoStorageBytes,
             largeVideoStorageBytes: largeVideoStorageBytes,
             screenRecordingStorageBytes: screenRecordingStorageBytes,
             duplicateCandidateStorageBytes: duplicateCandidateStorageBytes,
@@ -347,6 +361,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 photoCount = 0
                 videoCount = 0
                 screenshotCount = 0
+                livePhotoCount = 0
                 largeVideoCount = 0
                 screenRecordingCount = 0
                 duplicateCandidateCount = 0
@@ -354,6 +369,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 mediaStorageBytes = 0
                 videoStorageBytes = 0
                 screenshotStorageBytes = 0
+                livePhotoStorageBytes = 0
                 largeVideoStorageBytes = 0
                 screenRecordingStorageBytes = 0
                 duplicateCandidateStorageBytes = 0
@@ -372,6 +388,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             videoCount = snapshot.videoAssets.count
             screenshotAssets = snapshot.screenshotAssets
             screenshotCount = snapshot.screenshotAssets.count
+            livePhotoAssets = snapshot.livePhotoAssets
+            livePhotoCount = snapshot.livePhotoAssets.count
             videoAssets = snapshot.videoAssets
             largeVideoAssets = snapshot.largeVideoAssets
             largeVideoCount = snapshot.largeVideoAssets.count
@@ -388,6 +406,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             mediaStorageBytes = snapshot.mediaStorageBytes
             videoStorageBytes = snapshot.videoStorageBytes
             screenshotStorageBytes = snapshot.screenshotStorageBytes
+            livePhotoStorageBytes = snapshot.livePhotoStorageBytes
             largeVideoStorageBytes = snapshot.largeVideoStorageBytes
             screenRecordingStorageBytes = snapshot.screenRecordingStorageBytes
             emptyAlbumCount = snapshot.emptyAlbumCount
@@ -624,6 +643,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
             screenshotAssets = fastSnapshot.screenshotAssets
             screenshotCount = fastSnapshot.screenshotAssets.count
+            livePhotoAssets = fastSnapshot.livePhotoAssets
+            livePhotoCount = fastSnapshot.livePhotoAssets.count
             videoAssets = fastSnapshot.videoAssets
             videoCount = fastSnapshot.videoAssets.count
             largeVideoAssets = fastSnapshot.largeVideoAssets
@@ -635,6 +656,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             let storageValues = await Task.detached(priority: .utility) {
                 Self.computeStorageForAssets(
                     screenshots: fastSnapshot.screenshotAssets,
+                    livePhotos: fastSnapshot.livePhotoAssets,
                     videos: fastSnapshot.videoAssets,
                     largeVideos: fastSnapshot.largeVideoAssets,
                     recordings: fastSnapshot.screenRecordingAssets
@@ -647,6 +669,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
             videoStorageBytes = storageValues.videoStorageBytes
             screenshotStorageBytes = storageValues.screenshotStorageBytes
+            livePhotoStorageBytes = storageValues.livePhotoStorageBytes
             largeVideoStorageBytes = storageValues.largeVideoStorageBytes
             screenRecordingStorageBytes = storageValues.screenRecordingStorageBytes
             mediaStorageBytes = storageValues.totalStorageBytes
@@ -657,6 +680,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     private var shouldRestoreMediaAssets: Bool {
         (screenshotAssets.isEmpty && screenshotCount > 0) ||
+            (livePhotoAssets.isEmpty && livePhotoCount > 0) ||
             (videoAssets.isEmpty && videoCount > 0) ||
             (largeVideoAssets.isEmpty && largeVideoCount > 0) ||
             (screenRecordingAssets.isEmpty && screenRecordingCount > 0)
@@ -690,6 +714,92 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     nonisolated func storageBytes(for asset: PHAsset) -> Int64 {
         Self.assetStorageBytes(asset)
+    }
+
+    nonisolated func liveMotionBytes(for asset: PHAsset) -> Int64 {
+        Self.liveMotionStorageBytes(asset)
+    }
+
+    nonisolated func shouldRecommendLivePhotoSlimming(for asset: PHAsset) -> Bool {
+        guard asset.mediaSubtypes.contains(.photoLive),
+              !asset.isFavorite else {
+            return false
+        }
+        let motionBytes = Self.liveMotionStorageBytes(asset)
+        let totalBytes = Self.assetStorageBytes(asset)
+        return motionBytes >= 1_000_000 || Double(motionBytes) >= Double(totalBytes) * 0.35
+    }
+
+    func convertLivePhotosToStill(with identifiers: Set<String>) async throws {
+        guard !identifiers.isEmpty else { return }
+        let fetchResult = PHAsset.fetchAssets(
+            withLocalIdentifiers: Array(identifiers),
+            options: nil
+        )
+        var assets: [PHAsset] = []
+        fetchResult.enumerateObjects { asset, _, _ in
+            if asset.mediaSubtypes.contains(.photoLive) {
+                assets.append(asset)
+            }
+        }
+        guard !assets.isEmpty else { return }
+
+        var stillImageURLs: [URL] = []
+        stillImageURLs.reserveCapacity(assets.count)
+        do {
+            for asset in assets {
+                stillImageURLs.append(try await stillImageFileURL(for: asset))
+            }
+            try await PHPhotoLibrary.shared().performChanges {
+                for url in stillImageURLs {
+                    PHAssetCreationRequest.creationRequestForAssetFromImage(atFileURL: url)
+                }
+                PHAssetChangeRequest.deleteAssets(fetchResult)
+            }
+        } catch {
+            for url in stillImageURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+            throw error
+        }
+        for url in stillImageURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let convertedIDs = Set(assets.map(\.localIdentifier))
+        livePhotoAssets.removeAll { convertedIDs.contains($0.localIdentifier) }
+        livePhotoCount = livePhotoAssets.count
+        livePhotoStorageBytes = livePhotoAssets.reduce(Int64(0)) {
+            $0 + Self.assetStorageBytes($1)
+        }
+        persistHomeSummary()
+    }
+
+    private func stillImageFileURL(for asset: PHAsset) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let options = PHContentEditingInputRequestOptions()
+            options.isNetworkAccessAllowed = true
+            options.canHandleAdjustmentData = { _ in true }
+            asset.requestContentEditingInput(with: options) { input, _ in
+                guard let sourceURL = input?.fullSizeImageURL else {
+                    continuation.resume(throwing: NSError(
+                        domain: "PhotoCleaner.LivePhoto",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Unable to read still image"]
+                    ))
+                    return
+                }
+                let targetURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension(sourceURL.pathExtension.isEmpty ? "jpg" : sourceURL.pathExtension)
+                do {
+                    try FileManager.default.copyItem(at: sourceURL, to: targetURL)
+                    continuation.resume(returning: targetURL)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     func deleteEmptyAlbum(with localIdentifier: String) async throws {
@@ -1216,6 +1326,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
                 .reversed()
         )
+        let livePhotoAssets = Array(
+            imageAssets
+                .filter { $0.mediaSubtypes.contains(.photoLive) }
+                .reversed()
+        )
         let videoAssets = Array(videos.reversed())
         let largeVideoAssets = Array(
             videos
@@ -1243,6 +1358,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             for: screenshotAssets,
             storageByID: imageStorageByID
         )
+        let livePhotoStorageBytes = storageBytes(
+            for: livePhotoAssets,
+            storageByID: imageStorageByID
+        )
         let largeVideoStorageBytes = storageBytes(
             for: largeVideoAssets,
             storageByID: videoStorageByID
@@ -1261,6 +1380,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             imageAssets: imageAssets,
             videoAssets: videoAssets,
             screenshotAssets: screenshotAssets,
+            livePhotoAssets: livePhotoAssets,
             largeVideoAssets: largeVideoAssets,
             screenRecordingAssets: screenRecordingAssets,
             monthGroups: monthGroups,
@@ -1269,6 +1389,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             mediaStorageBytes: imageStorageBytes + videoStorageBytes,
             videoStorageBytes: videoStorageBytes,
             screenshotStorageBytes: screenshotStorageBytes,
+            livePhotoStorageBytes: livePhotoStorageBytes,
             largeVideoStorageBytes: largeVideoStorageBytes,
             screenRecordingStorageBytes: screenRecordingStorageBytes,
             initialBurstCandidateStorageBytes: burstCandidateStorageBytes,
@@ -1285,6 +1406,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
                 .reversed()
         )
+        let livePhotoAssets = Array(
+            imageAssets
+                .filter { $0.mediaSubtypes.contains(.photoLive) }
+                .reversed()
+        )
         let videoAssets = Array(videos.reversed())
         let largeVideoAssets = Array(
             videos
@@ -1298,12 +1424,14 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
         return MediaAssetSnapshot(
             screenshotAssets: screenshotAssets,
+            livePhotoAssets: livePhotoAssets,
             videoAssets: videoAssets,
             largeVideoAssets: largeVideoAssets,
             screenRecordingAssets: screenRecordingAssets,
             mediaStorageBytes: 0,
             videoStorageBytes: 0,
             screenshotStorageBytes: 0,
+            livePhotoStorageBytes: 0,
             largeVideoStorageBytes: 0,
             screenRecordingStorageBytes: 0
         )
@@ -1312,6 +1440,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private struct StorageValues {
         let videoStorageBytes: Int64
         let screenshotStorageBytes: Int64
+        let livePhotoStorageBytes: Int64
         let largeVideoStorageBytes: Int64
         let screenRecordingStorageBytes: Int64
         let totalStorageBytes: Int64
@@ -1319,17 +1448,20 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     nonisolated private static func computeStorageForAssets(
         screenshots: [PHAsset],
+        livePhotos: [PHAsset],
         videos: [PHAsset],
         largeVideos: [PHAsset],
         recordings: [PHAsset]
     ) -> StorageValues {
         let imageStorageByID = storageMap(for: screenshots)
+            .merging(storageMap(for: livePhotos)) { current, _ in current }
         let videoStorageByID = storageMap(for: videos)
         let imageStorageBytes = imageStorageByID.values.reduce(Int64(0), +)
         let videoStorageBytes = videoStorageByID.values.reduce(Int64(0), +)
         return StorageValues(
             videoStorageBytes: videoStorageBytes,
             screenshotStorageBytes: storageBytes(for: screenshots, storageByID: imageStorageByID),
+            livePhotoStorageBytes: storageBytes(for: livePhotos, storageByID: imageStorageByID),
             largeVideoStorageBytes: storageBytes(for: largeVideos, storageByID: videoStorageByID),
             screenRecordingStorageBytes: storageBytes(for: recordings, storageByID: videoStorageByID),
             totalStorageBytes: imageStorageBytes + videoStorageBytes
@@ -1346,6 +1478,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
                 .reversed()
         )
+        let livePhotoAssets = Array(
+            imageAssets
+                .filter { $0.mediaSubtypes.contains(.photoLive) }
+                .reversed()
+        )
         let videoAssets = Array(videos.reversed())
         let largeVideoAssets = Array(
             videos
@@ -1362,6 +1499,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
         return MediaAssetSnapshot(
             screenshotAssets: screenshotAssets,
+            livePhotoAssets: livePhotoAssets,
             videoAssets: videoAssets,
             largeVideoAssets: largeVideoAssets,
             screenRecordingAssets: screenRecordingAssets,
@@ -1369,6 +1507,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             videoStorageBytes: videoStorageBytes,
             screenshotStorageBytes: storageBytes(
                 for: screenshotAssets,
+                storageByID: imageStorageByID
+            ),
+            livePhotoStorageBytes: storageBytes(
+                for: livePhotoAssets,
                 storageByID: imageStorageByID
             ),
             largeVideoStorageBytes: storageBytes(
@@ -1401,6 +1543,16 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 return total + fileSize.int64Value
             }
             return total
+        }
+    }
+
+    nonisolated private static func liveMotionStorageBytes(_ asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
+            guard resource.type == .pairedVideo,
+                  let fileSize = resource.value(forKey: "fileSize") as? NSNumber else {
+                return total
+            }
+            return total + fileSize.int64Value
         }
     }
 
@@ -1731,6 +1883,19 @@ struct PhotoThumbnailView: View {
                 Image(systemName: "photo")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary.opacity(0.55))
+            }
+
+            if asset.mediaSubtypes.contains(.photoLive) {
+                Label("LIVE", systemImage: "livephoto")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(5)
+                    .allowsHitTesting(false)
             }
         }
         .clipped()

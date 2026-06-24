@@ -171,6 +171,10 @@ struct QuickCleanView: View {
             CleanerCategory.screenshots(
                 count: library.screenshotCount,
                 size: formattedStorage(library.screenshotStorageBytes)
+            ),
+            CleanerCategory.livePhotos(
+                count: library.livePhotoCount,
+                size: formattedStorage(library.livePhotoStorageBytes)
             )
         ]
     }
@@ -312,6 +316,8 @@ struct QuickCleanView: View {
             SimilarCleanView(mode: .duplicate)
         } else if item.kind == .burst {
             SimilarCleanView(mode: .burst)
+        } else if item.kind == .livePhoto {
+            LivePhotoCleanView(category: item)
         } else if item.kind.usesAssetGrid {
             AssetGridCleanView(category: item)
         } else {
@@ -1820,6 +1826,197 @@ struct AssetGridCleanView: View {
     }
 }
 
+struct LivePhotoCleanView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let category: CleanerCategory
+
+    @State private var selectedIDs = Set<String>()
+    @State private var removedIDs = Set<String>()
+    @State private var showConfirmation = false
+    @State private var operationError: String?
+    @State private var previewAsset: IdentifiablePHAsset?
+
+    private var assets: [PHAsset] {
+        library.livePhotoAssets.filter { !removedIDs.contains($0.localIdentifier) }
+    }
+
+    private var recommendedIDs: Set<String> {
+        Set(assets.filter(library.shouldRecommendLivePhotoSlimming).map(\.localIdentifier))
+    }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    }
+
+    var body: some View {
+        Group {
+            if assets.isEmpty {
+                if library.livePhotoCount > 0 {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("library.reading")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView(
+                        "live.cleanup.empty",
+                        systemImage: "livephoto",
+                        description: Text("live.cleanup.empty.description")
+                    )
+                }
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 2) {
+                        ForEach(assets, id: \.localIdentifier) { asset in
+                            AssetGridItem(
+                                asset: asset,
+                                isSelected: selectedIDs.contains(asset.localIdentifier),
+                                storageText: liveStorageText(for: asset),
+                                showsVideoBadge: false,
+                                onToggle: { toggleSelection(asset) },
+                                onPreview: { previewAsset = IdentifiablePHAsset(asset: asset) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.top, 2)
+                    .padding(.bottom, selectedIDs.isEmpty ? 24 : 104)
+                }
+            }
+        }
+        .navigationTitle(category.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    if selectedIDs.isEmpty {
+                        selectedIDs = recommendedIDs.isEmpty ?
+                            Set(assets.map(\.localIdentifier)) :
+                            recommendedIDs
+                    } else {
+                        selectedIDs.removeAll()
+                    }
+                } label: {
+                    Text(selectedIDs.isEmpty ? "live.select.recommended" : "select.none")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.cleanerBlue)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .animatedTabBarHidden()
+        .background(Color.cleanerBackground)
+        .overlay(alignment: .bottomTrailing) {
+            if !selectedIDs.isEmpty {
+                convertButton
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 18)
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.08), value: !selectedIDs.isEmpty)
+        .assetPreview(
+            $previewAsset,
+            isSelected: { selectedIDs.contains($0) },
+            onToggle: { item in toggleSelection(item.asset) }
+        )
+        .confirmationDialog(
+            "live.convert.confirm.title",
+            isPresented: $showConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("live.convert.confirm.action", role: .destructive) {
+                convertSelected()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(String.localizedStringWithFormat(
+                String(localized: "live.convert.confirm.message"),
+                selectedIDs.count
+            ))
+        }
+        .alert("operation.failed", isPresented: Binding(
+            get: { operationError != nil },
+            set: { if !$0 { operationError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(operationError ?? "")
+        }
+        .onAppear {
+            library.restoreMediaAssetsIfNeeded()
+            if selectedIDs.isEmpty {
+                selectedIDs = recommendedIDs
+            }
+        }
+        .onChange(of: library.livePhotoAssets.map(\.localIdentifier)) {
+            let available = Set(assets.map(\.localIdentifier))
+            selectedIDs = selectedIDs.intersection(available)
+            removedIDs = removedIDs.intersection(available)
+            if selectedIDs.isEmpty {
+                selectedIDs = recommendedIDs
+            }
+        }
+    }
+
+    private var convertButton: some View {
+        Button {
+            showConfirmation = true
+        } label: {
+            HStack(spacing: 10) {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "live.convert.selected.format"),
+                    selectedIDs.count
+                ))
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+                Image(systemName: "livephoto.slash")
+                    .font(.headline)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(Color.cleanerBlue, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
+        }
+    }
+
+    private func liveStorageText(for asset: PHAsset) -> String {
+        let motionBytes = library.liveMotionBytes(for: asset)
+        if motionBytes > 0 {
+            return String.localizedStringWithFormat(
+                String(localized: "live.motion.size.format"),
+                formattedStorage(motionBytes)
+            )
+        }
+        return formattedStorage(library.storageBytes(for: asset))
+    }
+
+    private func toggleSelection(_ asset: PHAsset) {
+        let id = asset.localIdentifier
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+        } else {
+            selectedIDs.insert(id)
+        }
+    }
+
+    private func convertSelected() {
+        let identifiers = selectedIDs
+        Task {
+            do {
+                try await library.convertLivePhotosToStill(with: identifiers)
+                removedIDs.formUnion(identifiers)
+                selectedIDs.subtract(identifiers)
+            } catch {
+                operationError = error.localizedDescription
+            }
+        }
+    }
+}
+
 private struct AssetGridItem: View {
     let asset: PHAsset
     let isSelected: Bool
@@ -3282,13 +3479,13 @@ private struct InfoPair: View {
 
 struct CleanerCategory: Identifiable {
     enum Kind: Hashable {
-        case duplicate, burst, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
+        case duplicate, burst, screenshot, livePhoto, lowQuality, video, largeVideo, recording, emptyAlbum
 
         var usesAssetGrid: Bool {
             switch self {
             case .screenshot, .video, .largeVideo, .recording:
                 return true
-            case .duplicate, .burst, .lowQuality, .emptyAlbum:
+            case .duplicate, .burst, .livePhoto, .lowQuality, .emptyAlbum:
                 return false
             }
         }
@@ -3343,6 +3540,17 @@ struct CleanerCategory: Identifiable {
             color: .red,
             icon: "iphone",
             kind: .screenshot
+        )
+    }
+
+    static func livePhotos(count: Int, size: String = "") -> CleanerCategory {
+        CleanerCategory(
+            title: String(localized: "category.live.photos"),
+            count: count,
+            size: size,
+            color: .cleanerBlue,
+            icon: "livephoto",
+            kind: .livePhoto
         )
     }
 

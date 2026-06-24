@@ -21,6 +21,7 @@
 "category.duplicates" = "重複写真";
 "category.bursts" = "連写写真";
 "category.screenshots" = "スクリーンショット";
+"category.live.photos" = "Live 写真の軽量化";
 "category.low.quality" = "低品質";
 "category.all.videos" = "すべての動画";
 "category.large.videos" = "大きな動画";
@@ -145,6 +146,14 @@
 "settings.clear.cache.confirm.title" = "解析キャッシュを削除しますか？";
 "settings.clear.cache.confirm.message" = "次回起動時に重複写真と連写のおすすめを再解析します。";
 "settings.clear.cache.confirm.action" = "キャッシュを削除";
+"live.cleanup.empty" = "軽量化できる Live 写真はありません";
+"live.cleanup.empty.description" = "Live Photo の動きが含まれる写真は見つかりませんでした。";
+"live.select.recommended" = "おすすめを選択";
+"live.convert.selected.format" = "%d 枚を軽量化";
+"live.convert.confirm.title" = "Live の動きを削除しますか？";
+"live.convert.confirm.message" = "%d 枚の静止写真を保存し、元の Live Photo は「最近削除した項目」に移動します。";
+"live.convert.confirm.action" = "静止写真に変換";
+"live.motion.size.format" = "動画部分 %@";
 "ai.tag.best.keep" = "AI おすすめ";
 "ai.tag.favorite.keep" = "お気に入り、保持";
 "ai.tag.lower.quality" = "品質が低め";

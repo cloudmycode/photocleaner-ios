@@ -21,6 +21,7 @@
 "category.duplicates" = "重复照片";
 "category.bursts" = "连拍照片";
 "category.screenshots" = "屏幕截图";
+"category.live.photos" = "Live 照片瘦身";
 "category.low.quality" = "低质量照片";
 "category.all.videos" = "全部视频";
 "category.large.videos" = "大型视频";
@@ -145,6 +146,14 @@
 "settings.clear.cache.confirm.title" = "清理分析缓存？";
 "settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复照片和连拍推荐。";
 "settings.clear.cache.confirm.action" = "清理缓存";
+"live.cleanup.empty" = "没有可瘦身的 Live 照片";
+"live.cleanup.empty.description" = "未发现包含动态效果的 Live Photo。";
+"live.select.recommended" = "选择推荐项";
+"live.convert.selected.format" = "瘦身 %d 张";
+"live.convert.confirm.title" = "移除 Live 动态效果？";
+"live.convert.confirm.message" = "将保留 %d 张静态照片，并把原 Live Photo 移至“最近删除”。";
+"live.convert.confirm.action" = "转为普通照片";
+"live.motion.size.format" = "动态 %@";
 "ai.tag.best.keep" = "AI 推荐保留";
 "ai.tag.favorite.keep" = "收藏照片，建议保留";
 "ai.tag.lower.quality" = "质量较低";
