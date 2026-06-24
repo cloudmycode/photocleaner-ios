@@ -515,6 +515,18 @@ struct MonthlyReviewView: View {
         availableAssets.first { !reviewedIDs.contains($0.localIdentifier) }
     }
 
+    private var nextAsset: PHAsset? {
+        guard let currentAsset,
+              let currentIndex = availableAssets.firstIndex(where: {
+                  $0.localIdentifier == currentAsset.localIdentifier
+              })
+        else { return nil }
+
+        return availableAssets[(currentIndex + 1)...].first {
+            !reviewedIDs.contains($0.localIdentifier)
+        }
+    }
+
     private var reviewedCount: Int {
         reviewedIDs.intersection(Set(availableAssets.map(\.localIdentifier))).count
     }
@@ -525,17 +537,17 @@ struct MonthlyReviewView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         reviewToolbar
-                        reviewCard(asset)
+                        reviewDeck(asset)
                         HStack(spacing: 36) {
+                            ActionCircle(systemName: "arrow.up", tint: .cleanerGreen) {
+                                review(asset, markForDeletion: false)
+                            }
+                            .accessibilityLabel(Text("keep"))
+
                             ActionCircle(systemName: "trash", tint: .red) {
                                 review(asset, markForDeletion: true)
                             }
                             .accessibilityLabel(Text("mark.for.deletion"))
-
-                            ActionCircle(systemName: "checkmark", tint: .cleanerGreen) {
-                                review(asset, markForDeletion: false)
-                            }
-                            .accessibilityLabel(Text("keep"))
                         }
                         Color.clear.frame(height: 12)
                     }
@@ -607,6 +619,37 @@ struct MonthlyReviewView: View {
         .padding(.top, 16)
     }
 
+    private func reviewDeck(_ asset: PHAsset) -> some View {
+        ZStack {
+            if let nextAsset {
+                stackedPreviewCard(nextAsset)
+                    .scaleEffect(0.96)
+                    .offset(y: 18)
+                    .opacity(0.88)
+                    .allowsHitTesting(false)
+            }
+
+            reviewCard(asset)
+        }
+        .padding(.horizontal, 22)
+    }
+
+    private func stackedPreviewCard(_ asset: PHAsset) -> some View {
+        PhotoThumbnailView(
+            asset: asset,
+            targetSize: CGSize(width: 880, height: 1100)
+        )
+        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 440)
+        .aspectRatio(0.84, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(Color.cleanerBorder.opacity(0.55), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 14, y: 8)
+    }
+
     private func reviewCard(_ asset: PHAsset) -> some View {
         ZStack(alignment: .topLeading) {
             PhotoThumbnailView(
@@ -636,29 +679,28 @@ struct MonthlyReviewView: View {
         .aspectRatio(0.84, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay {
-            if scale <= 1.01, offset.width < -30 {
+            if scale <= 1.01, offset.height > 30 {
                 swipeBadge(
                     title: String(localized: "mark.for.deletion"),
                     systemName: "trash",
                     color: .red,
-                    alignment: .topTrailing
+                    alignment: .bottom
                 )
-            } else if scale <= 1.01, offset.width > 30 {
+            } else if scale <= 1.01, offset.height < -30 {
                 swipeBadge(
                     title: String(localized: "keep"),
-                    systemName: "checkmark",
+                    systemName: "arrow.up",
                     color: .cleanerGreen,
-                    alignment: .topLeading
+                    alignment: .top
                 )
             }
         }
         .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
         .offset(offset)
-        .rotationEffect(.degrees(Double(offset.width / 18)))
+        .rotationEffect(.degrees(Double(offset.width / 24)))
         .simultaneousGesture(monthlyMagnifyGesture)
         .simultaneousGesture(monthlyDragGesture(for: asset))
         .onTapGesture { previewAsset = IdentifiablePHAsset(asset: asset) }
-        .padding(.horizontal, 22)
     }
 
     private var monthlyMagnifyGesture: some Gesture {
@@ -702,9 +744,9 @@ struct MonthlyReviewView: View {
                 if scale > 1 {
                     settledPhotoOffset = photoOffset
                 } else {
-                    if value.translation.width < -110 {
+                    if value.translation.height > 110 {
                         review(asset, markForDeletion: true)
-                    } else if value.translation.width > 110 {
+                    } else if value.translation.height < -110 {
                         review(asset, markForDeletion: false)
                     }
                     offset = .zero
