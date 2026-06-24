@@ -133,6 +133,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var hasDuplicateScanResults = false
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
+    @Published private(set) var hasCompletedInitialAnalysis = false
     @Published private(set) var mediaStorageBytes: Int64 = 0
     @Published private(set) var hasHomeSummary = false
     @Published private(set) var isUsingCachedHomeSummary = false
@@ -154,6 +155,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     let imageManager = PHCachingImageManager()
 
     nonisolated private static let homeSummaryKey = "photoCleaner.homeLibrarySummary.v1"
+    nonisolated private static let initialAnalysisCompleteKey = "photoCleaner.initialAnalysisComplete.v1"
     nonisolated private static let fallbackShotInterval: TimeInterval = 3
     nonisolated private static let fallbackSequenceDuration: TimeInterval = 10
     private let analysisCache = SimilarAnalysisCache()
@@ -167,6 +169,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         super.init()
         restoreHomeSummary()
+        hasCompletedInitialAnalysis = hasHomeSummary &&
+            UserDefaults.standard.bool(forKey: Self.initialAnalysisCompleteKey)
         restoreMonthlyAlbumsFromCache()
         PHPhotoLibrary.shared().register(self)
     }
@@ -407,6 +411,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             analysisCacheSize = await analysisCache.sizeInBytes() +
                 duplicateCache.sizeInBytes()
             persistHomeSummary()
+            markInitialAnalysisComplete()
             scanState = .finished
         }
     }
@@ -587,6 +592,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     func clearAnalysisCache() {
         scanTask?.cancel()
+        hasCompletedInitialAnalysis = false
+        UserDefaults.standard.removeObject(forKey: Self.initialAnalysisCompleteKey)
         Task {
             try? await analysisCache.clear()
             try? await duplicateCache.clear()
@@ -594,6 +601,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             analysisCacheSize = 0
             scanState = .idle
         }
+    }
+
+    private func markInitialAnalysisComplete() {
+        hasCompletedInitialAnalysis = true
+        UserDefaults.standard.set(true, forKey: Self.initialAnalysisCompleteKey)
     }
 
     private func restoreMonthlyReviewProgress() async {

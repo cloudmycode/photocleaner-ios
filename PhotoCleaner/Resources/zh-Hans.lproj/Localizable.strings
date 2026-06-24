@@ -11,6 +11,11 @@
 "analysis.complete" = "存储分析已完成";
 "home.item.loading" = "正在加载";
 "home.item.loading.toast" = "正在加载，请稍候";
+"initial.analysis.title" = "正在分析相册";
+"initial.analysis.subtitle" = "首次打开需要完成一次全量分析";
+"initial.analysis.reading" = "正在读取相册";
+"initial.analysis.preparing" = "正在准备分析";
+"initial.analysis.cache.note" = "分析结果会自动缓存，下次打开只在后台更新变化的内容。";
 "items.count.format" = "%lld 项";
 "videos.count.format" = "%@ 个视频";
 "category.duplicates" = "重复照片";

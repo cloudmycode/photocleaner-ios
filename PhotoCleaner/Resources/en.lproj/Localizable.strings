@@ -11,6 +11,11 @@
 "analysis.complete" = "End of storage analysis";
 "home.item.loading" = "Loading";
 "home.item.loading.toast" = "Loading, please wait";
+"initial.analysis.title" = "Analyzing Your Library";
+"initial.analysis.subtitle" = "The first launch needs one full analysis";
+"initial.analysis.reading" = "Reading photo library";
+"initial.analysis.preparing" = "Preparing analysis";
+"initial.analysis.cache.note" = "Results are cached automatically, so future launches update changes in the background.";
 "items.count.format" = "%lld items";
 "videos.count.format" = "%@ videos";
 "category.duplicates" = "Duplicate Photos";

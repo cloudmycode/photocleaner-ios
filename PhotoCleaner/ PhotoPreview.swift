@@ -5,9 +5,29 @@ import PhotosUI
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
     @State private var selectedTab: AppTab = .clean
 
     var body: some View {
+        ZStack {
+            if shouldShowInitialAnalysis {
+                InitialAnalysisView()
+                    .transition(.opacity)
+            } else {
+                mainTabs
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: shouldShowInitialAnalysis)
+    }
+
+    private var shouldShowInitialAnalysis: Bool {
+        let hasAccess = library.authorizationStatus == .authorized ||
+            library.authorizationStatus == .limited
+        return hasAccess && !library.hasCompletedInitialAnalysis
+    }
+
+    private var mainTabs: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 QuickCleanView()
@@ -42,6 +62,91 @@ private enum AppTab {
     case albums
     case compress
     case settings
+}
+
+private struct InitialAnalysisView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+
+    private var progress: Double? {
+        if let duplicateProgress = library.duplicateScanProgress,
+           duplicateProgress.total > 0 {
+            return Double(duplicateProgress.current) / Double(duplicateProgress.total)
+        }
+        if case let .analyzing(current, total) = library.scanState,
+           total > 0 {
+            return Double(current) / Double(total)
+        }
+        return nil
+    }
+
+    private var statusText: String {
+        if case .loadingLibrary = library.scanState {
+            return String(localized: "initial.analysis.reading")
+        }
+        if let duplicateProgress = library.duplicateScanProgress {
+            return String.localizedStringWithFormat(
+                String(localized: "duplicate.analyzing.format"),
+                duplicateProgress.current,
+                duplicateProgress.total
+            )
+        }
+        if case let .analyzing(current, total) = library.scanState {
+            return String.localizedStringWithFormat(
+                String(localized: "burst.analyzing.format"),
+                current,
+                total
+            )
+        }
+        return String(localized: "initial.analysis.preparing")
+    }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "sparkles.rectangle.stack")
+                .font(.system(size: 46, weight: .semibold))
+                .foregroundStyle(Color.cleanerBlue)
+
+            VStack(spacing: 10) {
+                Text("initial.analysis.title")
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+                Text("initial.analysis.subtitle")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 12) {
+                if let progress {
+                    ProgressView(value: progress)
+                        .tint(.cleanerBlue)
+                } else {
+                    ProgressView()
+                        .tint(.cleanerBlue)
+                }
+                Text(statusText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(minHeight: 18)
+            }
+            .frame(maxWidth: 320)
+            .padding(.top, 8)
+
+            Spacer()
+
+            Text("initial.analysis.cache.note")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 20)
+        }
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.cleanerBackground.ignoresSafeArea())
+    }
 }
 
 private func formattedStorage(_ bytes: Int64) -> String {
