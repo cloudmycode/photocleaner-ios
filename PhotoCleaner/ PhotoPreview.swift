@@ -950,19 +950,17 @@ struct SimilarCleanView: View {
 
                 similarContent
             }
-            .padding(.bottom, 16)
+            .padding(.bottom, selectedCount > 0 ? 104 : 16)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .bottomTrailing) {
             if selectedCount > 0 {
-                BottomActionBar(
-                    text: String.localizedStringWithFormat(String(localized: "selected.photos.format"), selectedCount),
-                    detail: "",
-                    buttonTitle: String(localized: "move.to.trash")
-                ) {
-                    showDeleteConfirmation = true
-                }
+                similarDeleteButton
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 18)
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
             }
         }
+        .animation(.easeOut(duration: 0.08), value: selectedCount > 0)
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
         .assetPreview(
@@ -1008,6 +1006,29 @@ struct SimilarCleanView: View {
             preheatGroupThumbnails()
         }
         .background(Color.cleanerBackground)
+    }
+
+    private var similarDeleteButton: some View {
+        Button {
+            showDeleteConfirmation = true
+        } label: {
+            HStack(spacing: 10) {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "month.marked.format"),
+                    selectedCount
+                ))
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+                Image(systemName: "trash.fill")
+                    .font(.headline)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(Color.red, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
+        }
+        .accessibilityLabel(Text("month.delete.marked"))
     }
 
     @ViewBuilder
@@ -1591,7 +1612,7 @@ struct AssetGridCleanView: View {
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
             }
-            .animation(.easeInOut(duration: 0.18), value: selectedIDs)
+            .animation(.easeOut(duration: 0.08), value: !selectedIDs.isEmpty)
             .assetPreview(
                 $previewAsset,
                 isSelected: { selectedIDs.contains($0) },
@@ -1799,6 +1820,9 @@ private struct AssetGridItem: View {
                 )
                 .frame(width: 34, height: 34)
                 .background(.black.opacity(isSelected ? 0 : 0.25), in: Circle())
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(isSelected ? "unselect" : "select"))
@@ -2947,6 +2971,9 @@ private struct SimilarPhotoCard: View {
                     )
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
             }
             .buttonStyle(.plain)
             .padding(.top, 2)
