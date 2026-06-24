@@ -183,3 +183,8 @@
 "smart.search.asset.screen_recording" = "画面収録";
 "smart.search.has.location" = "位置情報あり";
 "smart.search.no.location" = "位置情報なし";
+"smart.search.ocr.keyword.format" = "文字：%@";
+"smart.search.sensitive.bank_card" = "銀行カード";
+"smart.search.sensitive.id_card" = "身分証明書";
+"smart.search.sensitive.passport" = "パスポート";
+"smart.search.sensitive.document" = "書類/領収書";

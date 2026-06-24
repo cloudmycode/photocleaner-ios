@@ -183,3 +183,8 @@
 "smart.search.asset.screen_recording" = "Screen Recordings";
 "smart.search.has.location" = "Has location";
 "smart.search.no.location" = "No location";
+"smart.search.ocr.keyword.format" = "Text: %@";
+"smart.search.sensitive.bank_card" = "Bank cards";
+"smart.search.sensitive.id_card" = "ID documents";
+"smart.search.sensitive.passport" = "Passports";
+"smart.search.sensitive.document" = "Documents/receipts";

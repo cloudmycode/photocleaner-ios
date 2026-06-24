@@ -4,6 +4,7 @@ import Photos
 import PhotosUI
 import Speech
 import SwiftUI
+import Vision
 
 struct ContentView: View {
     @EnvironmentObject private var library: PhotoLibraryService
@@ -2952,9 +2953,7 @@ struct SmartPhotoSearchView: View {
     private func runSearch(_ query: PhotoSearchQuery) {
         isSearching = true
         Task {
-            let assets = await Task.detached(priority: .userInitiated) {
-                PhotoSearchEngine.search(query)
-            }.value
+            let assets = await PhotoSearchEngine.search(query)
             results = assets
             isSearching = false
         }
@@ -3099,6 +3098,10 @@ private struct PhotoSearchQuery: Decodable {
     var maxSizeMB: Double?
     var hasLocation: Bool?
     var keywords: [String]?
+    var ocrKeywords: [String]?
+    var sensitiveTypes: [String]?
+    var requiresOCR: Bool?
+    var rawText: String?
 
     struct DateRange: Decodable {
         var start: String?
@@ -3131,6 +3134,8 @@ private struct PhotoSearchQuery: Decodable {
         if let hasLocation {
             chips.append(String(localized: hasLocation ? "smart.search.has.location" : "smart.search.no.location"))
         }
+        chips.append(contentsOf: (sensitiveTypes ?? []).map(Self.sensitiveTypeLabel))
+        chips.append(contentsOf: (ocrKeywords ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.keyword.format"), $0) })
         chips.append(contentsOf: (keywords ?? []).map { "#\($0)" })
         return chips.isEmpty ? [String(localized: "smart.search.understood.default")] : chips
     }
@@ -3154,6 +3159,21 @@ private struct PhotoSearchQuery: Decodable {
             return String(localized: "smart.search.asset.live")
         case "screenrecording", "screen_recording":
             return String(localized: "smart.search.asset.screen_recording")
+        default:
+            return type
+        }
+    }
+
+    private static func sensitiveTypeLabel(_ type: String) -> String {
+        switch type.lowercased() {
+        case "bank_card", "bankcard", "credit_card":
+            return String(localized: "smart.search.sensitive.bank_card")
+        case "id_card", "identity_card", "identity_document":
+            return String(localized: "smart.search.sensitive.id_card")
+        case "passport":
+            return String(localized: "smart.search.sensitive.passport")
+        case "document", "certificate", "receipt", "invoice":
+            return String(localized: "smart.search.sensitive.document")
         default:
             return type
         }
@@ -3182,12 +3202,14 @@ private struct CloudPhotoSearchParser {
               (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode(PhotoSearchQuery.self, from: data)
+        var query = try JSONDecoder().decode(PhotoSearchQuery.self, from: data)
+        query.rawText = text
+        return query
     }
 }
 
 private enum PhotoSearchEngine {
-    static func search(_ query: PhotoSearchQuery) -> [PHAsset] {
+    static func search(_ query: PhotoSearchQuery) async -> [PHAsset] {
         let assets = fetchAssets(for: query)
         let startDate = parseDate(query.dateRange?.start, endOfDay: false)
         let endDate = parseDate(query.dateRange?.end, endOfDay: true)
@@ -3195,7 +3217,7 @@ private enum PhotoSearchEngine {
         let minBytes = query.minSizeMB.map { Int64($0 * 1_000_000) }
         let maxBytes = query.maxSizeMB.map { Int64($0 * 1_000_000) }
 
-        return assets.filter { asset in
+        let metadataMatches = assets.filter { asset in
             if let startDate, (asset.creationDate ?? .distantPast) < startDate { return false }
             if let endDate, (asset.creationDate ?? .distantFuture) > endDate { return false }
             if let hasLocation = query.hasLocation, (asset.location != nil) != hasLocation { return false }
@@ -3215,6 +3237,19 @@ private enum PhotoSearchEngine {
             }
             return true
         }
+
+        guard needsOCR(query) else { return metadataMatches }
+
+        var ocrMatches: [PHAsset] = []
+        for asset in metadataMatches where asset.mediaType == .image {
+            if Task.isCancelled { break }
+            guard let text = await recognizedText(for: asset),
+                  matchesOCRText(text, query: query) else {
+                continue
+            }
+            ocrMatches.append(asset)
+        }
+        return ocrMatches
     }
 
     private static func fetchAssets(for query: PhotoSearchQuery) -> [PHAsset] {
@@ -3243,10 +3278,136 @@ private enum PhotoSearchEngine {
                 asset.mediaSubtypes.contains(.photoLive)
             case "screenrecording", "screen_recording":
                 asset.mediaSubtypes.contains(.videoScreenRecording)
+            case "bank_card", "bankcard", "credit_card", "id_card", "identity_card",
+                 "identity_document", "passport", "document", "certificate", "receipt", "invoice":
+                true
             default:
                 false
             }
         }
+    }
+
+    private static func needsOCR(_ query: PhotoSearchQuery) -> Bool {
+        if query.requiresOCR == true { return true }
+        if !(query.ocrKeywords ?? []).isEmpty { return true }
+        if !(query.sensitiveTypes ?? []).isEmpty { return true }
+        return inferredSensitiveTypes(from: query.rawText).isEmpty == false
+    }
+
+    private static func matchesOCRText(_ text: String, query: PhotoSearchQuery) -> Bool {
+        let normalizedText = normalize(text)
+        let sensitiveTypes = Set((query.sensitiveTypes ?? []) + inferredSensitiveTypes(from: query.rawText))
+        if sensitiveTypes.contains(where: { matchesSensitiveType($0, normalizedText: normalizedText) }) {
+            return true
+        }
+        let keywords = (query.ocrKeywords ?? [])
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !keywords.isEmpty else {
+            return query.requiresOCR == true && !normalizedText.isEmpty
+        }
+        return keywords.contains { normalizedText.contains(normalize($0)) }
+    }
+
+    private static func matchesSensitiveType(_ type: String, normalizedText: String) -> Bool {
+        switch type.lowercased() {
+        case "bank_card", "bankcard", "credit_card":
+            let hasBankWords = ["银行卡", "信用卡", "储蓄卡", "银联", "unionpay", "bankcard", "creditcard"]
+                .contains { normalizedText.contains($0) }
+            return hasBankWords || containsLongNumber(normalizedText, minimumDigits: 13)
+        case "id_card", "identity_card", "identity_document":
+            let hasIDWords = ["居民身份证", "身份证", "公民身份号码", "签发机关", "有效期限", "住址", "出生"]
+                .contains { normalizedText.contains($0) }
+            return hasIDWords || containsChineseIDNumber(normalizedText)
+        case "passport":
+            return ["护照", "passport", "国籍", "placeofbirth", "dateofexpiry"]
+                .contains { normalizedText.contains($0) }
+        case "document", "certificate", "receipt", "invoice":
+            return ["发票", "票据", "收据", "合同", "证明", "证书", "invoice", "receipt", "contract"]
+                .contains { normalizedText.contains($0) }
+        default:
+            return false
+        }
+    }
+
+    private static func inferredSensitiveTypes(from rawText: String?) -> [String] {
+        let text = normalize(rawText ?? "")
+        var types: [String] = []
+        if text.contains("银行卡") || text.contains("信用卡") || text.contains("储蓄卡") || text.contains("bankcard") {
+            types.append("bank_card")
+        }
+        if text.contains("证件") || text.contains("身份证") || text.contains("identity") {
+            types.append("id_card")
+        }
+        if text.contains("护照") || text.contains("passport") {
+            types.append("passport")
+        }
+        if text.contains("发票") || text.contains("票据") || text.contains("合同") || text.contains("receipt") || text.contains("invoice") {
+            types.append("document")
+        }
+        return types
+    }
+
+    private static func recognizedText(for asset: PHAsset) async -> String? {
+        guard let image = await requestOCRImage(for: asset),
+              let cgImage = image.cgImage else {
+            return nil
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        let handler = VNImageRequestHandler(cgImage: cgImage)
+        do {
+            try handler.perform([request])
+            return request.results?
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: "\n")
+        } catch {
+            return nil
+        }
+    }
+
+    private static func requestOCRImage(for asset: PHAsset) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 900, height: 900),
+                contentMode: .aspectFit,
+                options: options
+            ) { image, _ in
+                continuation.resume(returning: image)
+            }
+        }
+    }
+
+    private static func normalize(_ text: String) -> String {
+        text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+            .lowercased()
+    }
+
+    private static func containsLongNumber(_ text: String, minimumDigits: Int) -> Bool {
+        var run = 0
+        for character in text {
+            if character.isNumber {
+                run += 1
+                if run >= minimumDigits { return true }
+            } else {
+                run = 0
+            }
+        }
+        return false
+    }
+
+    private static func containsChineseIDNumber(_ text: String) -> Bool {
+        let pattern = #"\d{17}[\dxX]"#
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func allLocationBounds(for query: PhotoSearchQuery) -> [PhotoSearchQuery.LocationBounds] {
