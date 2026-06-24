@@ -177,6 +177,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     nonisolated private static let homeSummaryKey = "photoCleaner.homeLibrarySummary.v1"
     nonisolated private static let initialAnalysisCompleteKey = "photoCleaner.initialAnalysisComplete.v1"
+    nonisolated private static let mediaStorageRepairKey = "photoCleaner.mediaStorageRepair.v1"
     nonisolated private static let fallbackShotInterval: TimeInterval = 3
     nonisolated private static let fallbackSequenceDuration: TimeInterval = 10
     private let analysisCache = SimilarAnalysisCache()
@@ -191,6 +192,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private var isRestoringMediaAssets = false
     private var isRestoringEmptyAlbums = false
     private var isRestoringMonthlyReviewProgress = false
+    private var shouldRepairCachedMediaStorage = false
 
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -198,6 +200,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         restoreHomeSummary()
         hasCompletedInitialAnalysis = hasHomeSummary &&
             UserDefaults.standard.bool(forKey: Self.initialAnalysisCompleteKey)
+        shouldRepairCachedMediaStorage = shouldRepairCachedMediaStorage ||
+            (hasCompletedInitialAnalysis &&
+                !UserDefaults.standard.bool(forKey: Self.mediaStorageRepairKey))
         restoreMonthlyAlbumsFromCache()
         PHPhotoLibrary.shared().register(self)
     }
@@ -218,7 +223,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
             guard !hasRequestedStartupScan else { return }
             hasRequestedStartupScan = true
-            guard !hasCompletedInitialAnalysis else { return }
+            if hasCompletedInitialAnalysis {
+                if shouldRepairCachedMediaStorage {
+                    shouldRepairCachedMediaStorage = false
+                    refreshLibrary()
+                }
+                return
+            }
             refreshLibrary()
         }
     }
@@ -325,6 +336,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         emptyAlbumCount = summary.emptyAlbumCount
         hasHomeSummary = true
         isUsingCachedHomeSummary = true
+        if Self.isSuspiciousMediaStorage(
+            mediaStorageBytes: summary.mediaStorageBytes,
+            videoStorageBytes: summary.videoStorageBytes,
+            photoCount: summary.photoCount
+        ) {
+            shouldRepairCachedMediaStorage = true
+        }
     }
 
     private func persistHomeSummary() {
@@ -412,6 +430,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             emptyAlbumCount = snapshot.emptyAlbumCount
             emptyAlbums = snapshot.emptyAlbums
             persistHomeSummary()
+            UserDefaults.standard.set(true, forKey: Self.mediaStorageRepairKey)
+            shouldRepairCachedMediaStorage = false
 
             await restoreMonthlyReviewProgress()
             await Task.yield()
@@ -672,7 +692,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             livePhotoStorageBytes = storageValues.livePhotoStorageBytes
             largeVideoStorageBytes = storageValues.largeVideoStorageBytes
             screenRecordingStorageBytes = storageValues.screenRecordingStorageBytes
-            mediaStorageBytes = storageValues.totalStorageBytes
             persistHomeSummary()
             isRestoringMediaAssets = false
         }
@@ -946,6 +965,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         scanTask?.cancel()
         hasCompletedInitialAnalysis = false
         UserDefaults.standard.removeObject(forKey: Self.initialAnalysisCompleteKey)
+        UserDefaults.standard.removeObject(forKey: Self.mediaStorageRepairKey)
         Task {
             try? await analysisCache.clear()
             try? await duplicateCache.clear()
@@ -1583,6 +1603,14 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
             return total
         }
+    }
+
+    nonisolated private static func isSuspiciousMediaStorage(
+        mediaStorageBytes: Int64,
+        videoStorageBytes: Int64,
+        photoCount: Int
+    ) -> Bool {
+        photoCount > 0 && videoStorageBytes > 0 && mediaStorageBytes <= videoStorageBytes
     }
 
     nonisolated private static func liveMotionStorageBytes(_ asset: PHAsset) -> Int64 {
