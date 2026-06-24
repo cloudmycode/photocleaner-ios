@@ -953,6 +953,15 @@ struct SimilarCleanView: View {
     @State private var showDeleteConfirmation = false
 
     private var selectedCount: Int { selectedIDs.count }
+    private var expectedCandidateCount: Int {
+        switch mode {
+        case .duplicate:
+            return library.duplicateCandidateCount
+        case .burst:
+            return library.burstCandidateCount
+        }
+    }
+
     private var groups: [SimilarAssetGroup] {
         switch mode {
         case .duplicate:
@@ -1085,7 +1094,16 @@ struct SimilarCleanView: View {
             .padding(.top, 60)
         default:
             if groups.isEmpty {
-                if library.scanState == .finished || library.hasCompletedInitialAnalysis {
+                if expectedCandidateCount > 0 {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(scanDescription)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+                } else if library.scanState == .finished || library.hasCompletedInitialAnalysis {
                     ContentUnavailableView(
                         emptyTitleKey,
                         systemImage: "checkmark.circle",
@@ -1172,7 +1190,7 @@ struct SimilarCleanView: View {
             groups
                 .flatMap(\.assets)
                 .map(\.asset)
-                .prefix(180)
+                .prefix(24)
         )
         library.preheatThumbnails(
             for: assets,
