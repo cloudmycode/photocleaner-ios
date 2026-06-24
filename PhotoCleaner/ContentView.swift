@@ -867,13 +867,16 @@ struct SimilarCleanView: View {
                     .padding(.top, 60)
                 }
             } else {
-                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                    SimilarGroup(
-                        title: groupTitle(group, index: index),
-                        group: group,
-                        selectedIDs: $selectedIDs,
-                        previewPhoto: $previewPhoto
-                    )
+                LazyVStack(spacing: 18) {
+                    ForEach(groups.indices, id: \.self) { index in
+                        let group = groups[index]
+                        SimilarGroup(
+                            title: groupTitle(group, index: index),
+                            group: group,
+                            selectedIDs: $selectedIDs,
+                            previewPhoto: $previewPhoto
+                        )
+                    }
                 }
             }
         }
@@ -1013,12 +1016,8 @@ struct AssetSwipeCleanView: View {
         }
     }
 
-    private var assets: [PHAsset] {
-        sourceAssets.filter { !excludedIDs.contains($0.localIdentifier) }
-    }
-
     private var currentAsset: PHAsset? {
-        assets.first
+        sourceAssets.first { !excludedIDs.contains($0.localIdentifier) }
     }
 
     var body: some View {
@@ -1790,7 +1789,7 @@ private struct SimilarGroup: View {
             .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
+                LazyHStack(spacing: 12) {
                     ForEach(group.assets) { photo in
                         SimilarPhotoCard(photo: photo, selected: selectedIDs.contains(photo.id)) {
                             previewPhoto = photo
