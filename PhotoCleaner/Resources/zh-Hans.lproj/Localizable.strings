@@ -9,6 +9,8 @@
 "section.videos" = "视频";
 "section.albums" = "相册";
 "analysis.complete" = "存储分析已完成";
+"home.item.loading" = "正在加载";
+"home.item.loading.toast" = "正在加载，请稍候";
 "items.count.format" = "%lld 项";
 "videos.count.format" = "%@ 个视频";
 "category.duplicates" = "重复照片";

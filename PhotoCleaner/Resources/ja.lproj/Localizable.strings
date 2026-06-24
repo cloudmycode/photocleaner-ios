@@ -9,6 +9,8 @@
 "section.videos" = "動画";
 "section.albums" = "アルバム";
 "analysis.complete" = "ストレージ分析が完了しました";
+"home.item.loading" = "読み込み中";
+"home.item.loading.toast" = "読み込み中です。しばらくお待ちください";
 "items.count.format" = "%lld 件";
 "videos.count.format" = "%@ 本の動画";
 "category.duplicates" = "重複写真";

@@ -9,6 +9,8 @@
 "section.videos" = "Videos";
 "section.albums" = "Albums";
 "analysis.complete" = "End of storage analysis";
+"home.item.loading" = "Loading";
+"home.item.loading.toast" = "Loading, please wait";
 "items.count.format" = "%lld items";
 "videos.count.format" = "%@ videos";
 "category.duplicates" = "Duplicate Photos";

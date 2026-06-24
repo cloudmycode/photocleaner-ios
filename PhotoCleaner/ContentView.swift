@@ -44,6 +44,8 @@ private enum AppTab {
 
 struct QuickCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @State private var toastMessage: String?
+    @State private var toastTask: Task<Void, Never>?
 
     private var photoItems: [CleanerCategory] {
         [
@@ -88,29 +90,43 @@ struct QuickCleanView: View {
 
                 CleanerSection(title: String(localized: "section.photos")) {
                     ForEach(photoItems) { item in
-                        NavigationLink {
-                            if item.kind == .duplicate {
-                                SimilarCleanView(mode: .duplicate)
-                            } else if item.kind == .burst {
-                                SimilarCleanView(mode: .burst)
-                            } else {
-                                AssetSwipeCleanView(category: item)
+                        let loadingText = loadingText(for: item)
+                        if loadingText == nil {
+                            NavigationLink {
+                                destination(for: item)
+                            } label: {
+                                CategoryRow(item: item, loadingText: loadingText)
                             }
-                        } label: {
-                            CategoryRow(item: item)
+                            .buttonStyle(.plain)
+                        } else {
+                            Button {
+                                showLoadingToast()
+                            } label: {
+                                CategoryRow(item: item, loadingText: loadingText)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
 
                 CleanerSection(title: String(localized: "section.videos")) {
                     ForEach(videoItems) { item in
-                        NavigationLink {
-                            AssetSwipeCleanView(category: item)
-                        } label: {
-                            CategoryRow(item: item)
+                        let loadingText = loadingText(for: item)
+                        if loadingText == nil {
+                            NavigationLink {
+                                destination(for: item)
+                            } label: {
+                                CategoryRow(item: item, loadingText: loadingText)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Button {
+                                showLoadingToast()
+                            } label: {
+                                CategoryRow(item: item, loadingText: loadingText)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
 
@@ -140,7 +156,73 @@ struct QuickCleanView: View {
             }
         }
         .background(Color.cleanerBackground)
+        .overlay(alignment: .bottom) {
+            if let toastMessage {
+                CleanerToast(message: toastMessage)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .animatedTabBarVisible()
+    }
+
+    @ViewBuilder
+    private func destination(for item: CleanerCategory) -> some View {
+        if item.kind == .duplicate {
+            SimilarCleanView(mode: .duplicate)
+        } else if item.kind == .burst {
+            SimilarCleanView(mode: .burst)
+        } else {
+            AssetSwipeCleanView(category: item)
+        }
+    }
+
+    private func loadingText(for item: CleanerCategory) -> String? {
+        if case .loadingLibrary = library.scanState {
+            return String(localized: "library.reading")
+        }
+
+        if item.kind == .duplicate,
+           let progress = library.duplicateScanProgress {
+            return String.localizedStringWithFormat(
+                String(localized: "duplicate.analyzing.format"),
+                progress.current,
+                progress.total
+            )
+        }
+
+        if item.kind == .burst {
+            if library.duplicateScanProgress != nil {
+                return String(localized: "home.item.loading")
+            }
+            if case let .analyzing(current, total) = library.scanState,
+               current < total {
+                return String.localizedStringWithFormat(
+                    String(localized: "burst.analyzing.format"),
+                    current,
+                    total
+                )
+            }
+        }
+
+        return nil
+    }
+
+    private func showLoadingToast() {
+        toastTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            toastMessage = String(localized: "home.item.loading.toast")
+        }
+        toastTask = Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    toastMessage = nil
+                }
+            }
+        }
     }
 
     private var scanStatus: String {
@@ -150,6 +232,16 @@ struct QuickCleanView: View {
         case .notDetermined:
             return String(localized: "photo.access.requesting")
         default:
+            if case .loadingLibrary = library.scanState {
+                return String(localized: "library.reading")
+            }
+            if let progress = library.duplicateScanProgress {
+                return String.localizedStringWithFormat(
+                    String(localized: "duplicate.analyzing.format"),
+                    progress.current,
+                    progress.total
+                )
+            }
             if case let .analyzing(current, total) = library.scanState {
                 return String.localizedStringWithFormat(
                     String(localized: "burst.analyzing.format"),
@@ -1332,7 +1424,7 @@ struct VideoCompressView: View {
                     NavigationLink {
                         AssetSwipeCleanView(category: category)
                     } label: {
-                        CategoryRow(item: category)
+                        CategoryRow(item: category, loadingText: nil)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1614,6 +1706,7 @@ private struct CleanerSection<Content: View>: View {
 
 private struct CategoryRow: View {
     let item: CleanerCategory
+    let loadingText: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1624,12 +1717,23 @@ private struct CategoryRow: View {
                 Text(item.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.cleanerText)
-                Text(String.localizedStringWithFormat(String(localized: "items.count.format"), item.count))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let loadingText {
+                    Text(loadingText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(String.localizedStringWithFormat(String(localized: "items.count.format"), item.count))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            if !item.size.isEmpty {
+            if loadingText != nil {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 24, height: 24)
+            } else if !item.size.isEmpty {
                 Text(item.size)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.cleanerText)
@@ -1643,6 +1747,22 @@ private struct CategoryRow: View {
         .frame(minHeight: 56)
         .background(.white)
         .overlay(alignment: .bottom) { Divider().padding(.leading, 20) }
+    }
+}
+
+private struct CleanerToast: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity)
+            .background(Color.black.opacity(0.82), in: Capsule())
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
     }
 }
 
