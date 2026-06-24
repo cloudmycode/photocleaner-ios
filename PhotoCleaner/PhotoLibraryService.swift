@@ -182,9 +182,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     nonisolated private static let fallbackSequenceDuration: TimeInterval = 10
     private let analysisCache = SimilarAnalysisCache()
     private let duplicateCache = DuplicateFingerprintCache()
+    private let searchIndexStore = PhotoSearchIndexStore.shared
     private let monthlyReviewStore = MonthlyReviewStore()
     private let monthlyAlbumsCache = MonthlyAlbumsCache()
     private var scanTask: Task<Void, Never>?
+    private var searchIndexTask: Task<Void, Never>?
     private var libraryChangeDebounce: Task<Void, Never>?
     private var hasRequestedStartupScan = false
     private var isRestoringCachedDuplicates = false
@@ -224,6 +226,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             guard !hasRequestedStartupScan else { return }
             hasRequestedStartupScan = true
             if hasCompletedInitialAnalysis {
+                refreshSearchIndexInBackground()
                 if shouldRepairCachedMediaStorage {
                     shouldRepairCachedMediaStorage = false
                     refreshLibrary()
@@ -432,6 +435,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             persistHomeSummary()
             UserDefaults.standard.set(true, forKey: Self.mediaStorageRepairKey)
             shouldRepairCachedMediaStorage = false
+            await rebuildSearchIndexMetadata(
+                for: snapshot.imageAssets + snapshot.videoAssets
+            )
+            startSearchOCRIndexing(for: snapshot.imageAssets)
 
             await restoreMonthlyReviewProgress()
             await Task.yield()
@@ -452,7 +459,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             )
             if burstCacheComplete {
                 analysisCacheSize = await analysisCache.sizeInBytes() +
-                    duplicateCache.sizeInBytes()
+                    duplicateCache.sizeInBytes() +
+                    searchIndexStore.sizeInBytes()
                 persistHomeSummary()
                 markInitialAnalysisComplete()
                 scanState = .finished
@@ -496,7 +504,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
             try? await analysisCache.replace(with: activeCache)
             analysisCacheSize = await analysisCache.sizeInBytes() +
-                duplicateCache.sizeInBytes()
+                duplicateCache.sizeInBytes() +
+                searchIndexStore.sizeInBytes()
             persistHomeSummary()
             markInitialAnalysisComplete()
             scanState = .finished
@@ -963,15 +972,105 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     func clearAnalysisCache() {
         scanTask?.cancel()
+        searchIndexTask?.cancel()
         hasCompletedInitialAnalysis = false
         UserDefaults.standard.removeObject(forKey: Self.initialAnalysisCompleteKey)
         UserDefaults.standard.removeObject(forKey: Self.mediaStorageRepairKey)
         Task {
             try? await analysisCache.clear()
             try? await duplicateCache.clear()
+            try? await searchIndexStore.clear()
             try? await monthlyAlbumsCache.clear()
             analysisCacheSize = 0
             scanState = .idle
+        }
+    }
+
+    private func refreshSearchIndexInBackground() {
+        searchIndexTask?.cancel()
+        searchIndexTask = Task.detached(priority: .background) {
+            let imageAssets = Self.fetchImageAssets()
+            let videoAssets = Self.fetchVideoAssets()
+            try? await PhotoSearchIndexStore.shared.rebuildMetadata(
+                for: imageAssets + videoAssets
+            )
+            await Self.indexSearchOCRIfNeeded(for: imageAssets)
+        }
+    }
+
+    private func rebuildSearchIndexMetadata(for assets: [PHAsset]) async {
+        try? await searchIndexStore.rebuildMetadata(for: assets)
+        analysisCacheSize = await analysisCache.sizeInBytes() +
+            duplicateCache.sizeInBytes() +
+            searchIndexStore.sizeInBytes()
+    }
+
+    private func startSearchOCRIndexing(for assets: [PHAsset]) {
+        searchIndexTask?.cancel()
+        searchIndexTask = Task.detached(priority: .background) {
+            await Self.indexSearchOCRIfNeeded(for: assets)
+        }
+    }
+
+    nonisolated private static func indexSearchOCRIfNeeded(for assets: [PHAsset]) async {
+        let pending = await PhotoSearchIndexStore.shared.assetsNeedingOCR(from: assets)
+        var batch: [(asset: PHAsset, text: String)] = []
+        batch.reserveCapacity(12)
+        for (index, asset) in pending.enumerated() {
+            guard !Task.isCancelled else { return }
+            let text = await searchRecognizedText(for: asset) ?? ""
+            batch.append((asset, text))
+            if batch.count >= 12 {
+                try? await PhotoSearchIndexStore.shared.updateOCRTexts(batch)
+                batch.removeAll(keepingCapacity: true)
+            }
+            if index.isMultiple(of: 5) {
+                await Task.yield()
+            }
+        }
+        try? await PhotoSearchIndexStore.shared.updateOCRTexts(batch)
+    }
+
+    nonisolated private static func searchRecognizedText(for asset: PHAsset) async -> String? {
+        guard let image = await requestSearchOCRImage(for: asset),
+              let cgImage = image.cgImage else {
+            return nil
+        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["zh-Hans", "en-US"]
+        let handler = VNImageRequestHandler(cgImage: cgImage)
+        do {
+            try handler.perform([request])
+            return request.results?
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: "\n")
+        } catch {
+            return nil
+        }
+    }
+
+    nonisolated private static func requestSearchOCRImage(for asset: PHAsset) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+
+            var resumed = false
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 900, height: 900),
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                let degraded = info?[PHImageResultIsDegradedKey] as? Bool ?? false
+                let cancelled = info?[PHImageCancelledKey] as? Bool ?? false
+                guard !resumed, !degraded else { return }
+                resumed = true
+                continuation.resume(returning: cancelled ? nil : image)
+            }
         }
     }
 

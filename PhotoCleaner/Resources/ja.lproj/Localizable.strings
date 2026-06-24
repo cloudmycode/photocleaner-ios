@@ -144,7 +144,7 @@
 "settings.photo.access.limited" = "選択した写真";
 "settings.photo.access.none" = "許可されていません";
 "settings.clear.cache.confirm.title" = "解析キャッシュを削除しますか？";
-"settings.clear.cache.confirm.message" = "次回起動時に重複写真と連写のおすすめを再解析します。";
+"settings.clear.cache.confirm.message" = "次回起動時に重複写真、連写のおすすめ、スマート検索インデックスを再解析します。";
 "settings.clear.cache.confirm.action" = "キャッシュを削除";
 "live.cleanup.empty" = "軽量化できる Live 写真はありません";
 "live.cleanup.empty.description" = "Live Photo の動きが含まれる写真は見つかりませんでした。";

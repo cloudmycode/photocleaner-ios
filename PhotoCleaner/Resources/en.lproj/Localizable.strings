@@ -144,7 +144,7 @@
 "settings.photo.access.limited" = "Selected Photos";
 "settings.photo.access.none" = "Not Allowed";
 "settings.clear.cache.confirm.title" = "Clear Analysis Cache?";
-"settings.clear.cache.confirm.message" = "Duplicate photos and burst recommendations will be analyzed again the next time the app opens.";
+"settings.clear.cache.confirm.message" = "Duplicate photos, burst recommendations, and the Smart Search index will be analyzed again the next time the app opens.";
 "settings.clear.cache.confirm.action" = "Clear Cache";
 "live.cleanup.empty" = "No Live Photos to Slim";
 "live.cleanup.empty.description" = "No photos with Live Photo motion were found.";

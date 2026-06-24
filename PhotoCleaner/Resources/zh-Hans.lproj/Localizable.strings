@@ -144,7 +144,7 @@
 "settings.photo.access.limited" = "部分照片";
 "settings.photo.access.none" = "未允许";
 "settings.clear.cache.confirm.title" = "清理分析缓存？";
-"settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复照片和连拍推荐。";
+"settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复照片、连拍推荐和智能找图索引。";
 "settings.clear.cache.confirm.action" = "清理缓存";
 "live.cleanup.empty" = "没有可瘦身的 Live 照片";
 "live.cleanup.empty.description" = "未发现包含动态效果的 Live Photo。";

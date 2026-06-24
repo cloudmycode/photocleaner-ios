@@ -2,6 +2,218 @@ import CryptoKit
 import Foundation
 import Photos
 
+struct PhotoSearchIndexEntry: Codable {
+    let id: String
+    let signature: String
+    let mediaType: String
+    let assetTypes: [String]
+    let creationDate: Date?
+    let latitude: Double?
+    let longitude: Double?
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let storageBytes: Int64
+    var ocrText: String?
+    var ocrIndexedAt: Date?
+}
+
+actor PhotoSearchIndexStore {
+    private struct Payload: Codable {
+        let version: Int
+        var entries: [String: PhotoSearchIndexEntry]
+    }
+
+    static let shared = PhotoSearchIndexStore()
+
+    private let algorithmVersion = 1
+    private let fileURL: URL
+    private var entries: [String: PhotoSearchIndexEntry]?
+
+    init() {
+        let baseURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
+        let directory = baseURL.appendingPathComponent(
+            "PhotoSearchIndex",
+            isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        fileURL = directory.appendingPathComponent("index.json")
+    }
+
+    func validEntries(for assets: [PHAsset]) -> [String: PhotoSearchIndexEntry] {
+        loadIfNeeded()
+        guard let entries else { return [:] }
+        return Dictionary(uniqueKeysWithValues: assets.compactMap { asset in
+            let id = asset.localIdentifier
+            guard let entry = entries[id],
+                  entry.signature == Self.signature(for: asset) else {
+                return nil
+            }
+            return (id, entry)
+        })
+    }
+
+    func rebuildMetadata(for assets: [PHAsset]) throws {
+        loadIfNeeded()
+        let existing = entries ?? [:]
+        let activeIDs = Set(assets.map(\.localIdentifier))
+        var updated: [String: PhotoSearchIndexEntry] = [:]
+        updated.reserveCapacity(assets.count)
+
+        for asset in assets {
+            let id = asset.localIdentifier
+            let signature = Self.signature(for: asset)
+            let previous = existing[id]
+            let canReuseOCR = previous?.signature == signature
+            updated[id] = Self.entry(
+                for: asset,
+                signature: signature,
+                previousOCRText: canReuseOCR ? previous?.ocrText : nil,
+                previousOCRIndexedAt: canReuseOCR ? previous?.ocrIndexedAt : nil
+            )
+        }
+
+        // Drop deleted assets from the index.
+        entries = updated.filter { activeIDs.contains($0.key) }
+        try save()
+    }
+
+    func assetsNeedingOCR(from assets: [PHAsset]) -> [PHAsset] {
+        loadIfNeeded()
+        let existing = entries ?? [:]
+        return assets.filter { asset in
+            guard asset.mediaType == .image else { return false }
+            let entry = existing[asset.localIdentifier]
+            return entry?.signature != Self.signature(for: asset) ||
+                entry?.ocrIndexedAt == nil
+        }
+    }
+
+    func updateOCRText(_ text: String, for asset: PHAsset) throws {
+        loadIfNeeded()
+        upsertOCRText(text, for: asset)
+        try save()
+    }
+
+    func updateOCRTexts(_ values: [(asset: PHAsset, text: String)]) throws {
+        guard !values.isEmpty else { return }
+        loadIfNeeded()
+        for value in values {
+            upsertOCRText(value.text, for: value.asset)
+        }
+        try save()
+    }
+
+    func clear() throws {
+        entries = [:]
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    func sizeInBytes() -> Int64 {
+        guard let attributes = try? FileManager.default.attributesOfItem(
+            atPath: fileURL.path
+        ) else {
+            return 0
+        }
+        return attributes[.size] as? Int64 ?? 0
+    }
+
+    private func loadIfNeeded() {
+        guard entries == nil else { return }
+        guard let data = try? Data(contentsOf: fileURL),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == algorithmVersion else {
+            entries = [:]
+            return
+        }
+        entries = payload.entries
+    }
+
+    private func save() throws {
+        let data = try JSONEncoder().encode(
+            Payload(version: algorithmVersion, entries: entries ?? [:])
+        )
+        try data.write(to: fileURL, options: .atomic)
+    }
+
+    private func upsertOCRText(_ text: String, for asset: PHAsset) {
+        let signature = Self.signature(for: asset)
+        var entry = Self.entry(
+            for: asset,
+            signature: signature,
+            previousOCRText: text,
+            previousOCRIndexedAt: Date()
+        )
+        entry.ocrText = text
+        entry.ocrIndexedAt = Date()
+        entries?[asset.localIdentifier] = entry
+    }
+
+    private static func entry(
+        for asset: PHAsset,
+        signature: String,
+        previousOCRText: String?,
+        previousOCRIndexedAt: Date?
+    ) -> PhotoSearchIndexEntry {
+        PhotoSearchIndexEntry(
+            id: asset.localIdentifier,
+            signature: signature,
+            mediaType: asset.mediaType == .video ? "video" : "image",
+            assetTypes: assetTypes(for: asset),
+            creationDate: asset.creationDate,
+            latitude: asset.location?.coordinate.latitude,
+            longitude: asset.location?.coordinate.longitude,
+            pixelWidth: asset.pixelWidth,
+            pixelHeight: asset.pixelHeight,
+            storageBytes: storageBytes(for: asset),
+            ocrText: previousOCRText,
+            ocrIndexedAt: previousOCRIndexedAt
+        )
+    }
+
+    private static func assetTypes(for asset: PHAsset) -> [String] {
+        var types: [String] = []
+        if asset.mediaSubtypes.contains(.photoScreenshot) {
+            types.append("screenshot")
+        }
+        if asset.mediaSubtypes.contains(.photoLive) {
+            types.append("live")
+        }
+        if asset.mediaSubtypes.contains(.videoScreenRecording) {
+            types.append("screen_recording")
+        }
+        return types
+    }
+
+    private static func signature(for asset: PHAsset) -> String {
+        [
+            asset.localIdentifier,
+            String(format: "%.3f", asset.creationDate?.timeIntervalSince1970 ?? 0),
+            String(format: "%.3f", asset.modificationDate?.timeIntervalSince1970 ?? 0),
+            String(asset.pixelWidth),
+            String(asset.pixelHeight),
+            String(asset.mediaType.rawValue),
+            String(asset.mediaSubtypes.rawValue)
+        ].joined(separator: ":")
+    }
+
+    private static func storageBytes(for asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
+            if let fileSize = resource.value(forKey: "fileSize") as? NSNumber {
+                return total + fileSize.int64Value
+            }
+            return total
+        }
+    }
+}
+
 struct CachedSimilarAsset: Codable {
     let id: String
     let qualityScore: Double

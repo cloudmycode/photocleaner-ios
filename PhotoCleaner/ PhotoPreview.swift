@@ -3282,6 +3282,7 @@ private struct CloudPhotoSearchParser {
 private enum PhotoSearchEngine {
     static func search(_ query: PhotoSearchQuery) async -> [PHAsset] {
         let assets = fetchAssets(for: query)
+        let indexedEntries = await PhotoSearchIndexStore.shared.validEntries(for: assets)
         let startDate = parseDate(query.dateRange?.start, endOfDay: false)
         let endDate = parseDate(query.dateRange?.end, endOfDay: true)
         let bounds = allLocationBounds(for: query)
@@ -3289,20 +3290,27 @@ private enum PhotoSearchEngine {
         let maxBytes = query.maxSizeMB.map { Int64($0 * 1_000_000) }
 
         let metadataMatches = assets.filter { asset in
-            if let startDate, (asset.creationDate ?? .distantPast) < startDate { return false }
-            if let endDate, (asset.creationDate ?? .distantFuture) > endDate { return false }
-            if let hasLocation = query.hasLocation, (asset.location != nil) != hasLocation { return false }
+            let entry = indexedEntries[asset.localIdentifier]
+            let creationDate = entry?.creationDate ?? asset.creationDate
+            if let startDate, (creationDate ?? .distantPast) < startDate { return false }
+            if let endDate, (creationDate ?? .distantFuture) > endDate { return false }
+            if let hasLocation = query.hasLocation {
+                let assetHasLocation = locationCoordinate(for: asset, entry: entry) != nil
+                if assetHasLocation != hasLocation { return false }
+            }
             if !bounds.isEmpty {
-                guard let coordinate = asset.location?.coordinate,
+                guard let coordinate = locationCoordinate(for: asset, entry: entry),
                       bounds.contains(where: { $0.contains(coordinate) }) else {
                     return false
                 }
             }
-            if let assetTypes = query.assetTypes, !assetTypes.isEmpty, !matchesAssetTypes(asset, assetTypes) {
+            if let assetTypes = query.assetTypes,
+               !assetTypes.isEmpty,
+               !matchesAssetTypes(asset, entry: entry, assetTypes) {
                 return false
             }
             if minBytes != nil || maxBytes != nil {
-                let bytes = storageBytes(asset)
+                let bytes = entry?.storageBytes ?? storageBytes(asset)
                 if let minBytes, bytes < minBytes { return false }
                 if let maxBytes, bytes > maxBytes { return false }
             }
@@ -3314,7 +3322,10 @@ private enum PhotoSearchEngine {
         var ocrMatches: [PHAsset] = []
         for asset in metadataMatches where asset.mediaType == .image {
             if Task.isCancelled { break }
-            guard let text = await recognizedText(for: asset),
+            guard let text = await cachedOrRecognizedText(
+                for: asset,
+                entry: indexedEntries[asset.localIdentifier]
+            ),
                   matchesOCRText(text, query: query) else {
                 continue
             }
@@ -3340,15 +3351,22 @@ private enum PhotoSearchEngine {
         return assets.sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
     }
 
-    private static func matchesAssetTypes(_ asset: PHAsset, _ types: [String]) -> Bool {
+    private static func matchesAssetTypes(
+        _ asset: PHAsset,
+        entry: PhotoSearchIndexEntry?,
+        _ types: [String]
+    ) -> Bool {
         types.contains { rawType in
             switch rawType.lowercased() {
             case "screenshot":
-                asset.mediaSubtypes.contains(.photoScreenshot)
+                entry?.assetTypes.contains("screenshot") ??
+                    asset.mediaSubtypes.contains(.photoScreenshot)
             case "live", "livephoto", "live_photo":
-                asset.mediaSubtypes.contains(.photoLive)
+                entry?.assetTypes.contains("live") ??
+                    asset.mediaSubtypes.contains(.photoLive)
             case "screenrecording", "screen_recording":
-                asset.mediaSubtypes.contains(.videoScreenRecording)
+                entry?.assetTypes.contains("screen_recording") ??
+                    asset.mediaSubtypes.contains(.videoScreenRecording)
             case "bank_card", "bankcard", "credit_card", "id_card", "identity_card",
                  "identity_document", "passport", "document", "certificate", "receipt", "invoice":
                 true
@@ -3356,6 +3374,17 @@ private enum PhotoSearchEngine {
                 false
             }
         }
+    }
+
+    private static func locationCoordinate(
+        for asset: PHAsset,
+        entry: PhotoSearchIndexEntry?
+    ) -> CLLocationCoordinate2D? {
+        if let latitude = entry?.latitude,
+           let longitude = entry?.longitude {
+            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        }
+        return asset.location?.coordinate
     }
 
     private static func needsOCR(_ query: PhotoSearchQuery) -> Bool {
@@ -3438,6 +3467,18 @@ private enum PhotoSearchEngine {
             types.append("document")
         }
         return types
+    }
+
+    private static func cachedOrRecognizedText(
+        for asset: PHAsset,
+        entry: PhotoSearchIndexEntry?
+    ) async -> String? {
+        if entry?.ocrIndexedAt != nil {
+            return entry?.ocrText ?? ""
+        }
+        let text = await recognizedText(for: asset) ?? ""
+        try? await PhotoSearchIndexStore.shared.updateOCRText(text, for: asset)
+        return text
     }
 
     private static func recognizedText(for asset: PHAsset) async -> String? {
