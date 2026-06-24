@@ -130,6 +130,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var duplicateGroups: [SimilarAssetGroup] = []
     @Published private(set) var burstGroups: [SimilarAssetGroup] = []
     @Published private(set) var duplicateScanProgress: (current: Int, total: Int)?
+    @Published private(set) var hasDuplicateScanResults = false
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
     @Published private(set) var mediaStorageBytes: Int64 = 0
@@ -356,8 +357,14 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             await restoreMonthlyReviewProgress()
             await Task.yield()
 
-            await scanDuplicates(in: snapshot.imageAssets)
+            let duplicateCacheComplete = await restoreDuplicateGroupsFromCache(
+                in: snapshot.imageAssets
+            )
             persistHomeSummary()
+            if !duplicateCacheComplete {
+                await scanDuplicates(in: snapshot.imageAssets)
+                persistHomeSummary()
+            }
 
             var analyzedBurstGroups = snapshot.initialBurstGroups
             let candidates = snapshot.burstCandidates
@@ -646,6 +653,22 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         })
     }
 
+    private func restoreDuplicateGroupsFromCache(in assets: [PHAsset]) async -> Bool {
+        let cached = await duplicateCache.validFingerprints(for: assets)
+        guard !cached.isEmpty else {
+            hasDuplicateScanResults = false
+            return assets.isEmpty
+        }
+
+        applyDuplicateGroups(
+            Self.makeDuplicateGroups(
+                from: assets,
+                fingerprints: cached.mapValues(\.fingerprint)
+            )
+        )
+        return cached.count == assets.count
+    }
+
     private func scanDuplicates(in assets: [PHAsset]) async {
         duplicateScanProgress = (0, assets.count)
         var activeCache: [String: CachedPhotoFingerprint] = [:]
@@ -685,16 +708,41 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
         }
 
-        duplicateGroups = assetsByFingerprint.values
+        applyDuplicateGroups(
+            assetsByFingerprint.values
+                .filter { $0.count >= 2 }
+                .map(Self.makeDuplicateGroup)
+                .sorted {
+                    ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+                }
+        )
+        try? await duplicateCache.replace(with: activeCache)
+        duplicateScanProgress = nil
+    }
+
+    private func applyDuplicateGroups(_ groups: [SimilarAssetGroup]) {
+        duplicateGroups = groups
+        duplicateCandidateCount = Self.cleanableCount(in: groups)
+        duplicateCandidateStorageBytes = Self.cleanableStorageBytes(in: groups)
+        hasDuplicateScanResults = true
+    }
+
+    nonisolated private static func makeDuplicateGroups(
+        from assets: [PHAsset],
+        fingerprints: [String: String]
+    ) -> [SimilarAssetGroup] {
+        var assetsByFingerprint: [String: [PHAsset]] = [:]
+        for asset in assets {
+            guard let fingerprint = fingerprints[asset.localIdentifier] else { continue }
+            let aspectBucket = aspectBucket(for: asset)
+            assetsByFingerprint["\(aspectBucket):\(fingerprint)", default: []].append(asset)
+        }
+        return assetsByFingerprint.values
             .filter { $0.count >= 2 }
-            .map(Self.makeDuplicateGroup)
+            .map(makeDuplicateGroup)
             .sorted {
                 ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
             }
-        duplicateCandidateCount = Self.cleanableCount(in: duplicateGroups)
-        duplicateCandidateStorageBytes = Self.cleanableStorageBytes(in: duplicateGroups)
-        try? await duplicateCache.replace(with: activeCache)
-        duplicateScanProgress = nil
     }
 
     nonisolated private static func cleanableCount(in groups: [SimilarAssetGroup]) -> Int {

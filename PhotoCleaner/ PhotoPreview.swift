@@ -248,7 +248,7 @@ struct QuickCleanView: View {
     private func canOpen(_ item: CleanerCategory) -> Bool {
         switch item.kind {
         case .duplicate:
-            return library.duplicateScanProgress == nil
+            return library.hasDuplicateScanResults || library.duplicateScanProgress == nil
         case .burst:
             if library.duplicateScanProgress != nil { return false }
             if case let .analyzing(current, total) = library.scanState {

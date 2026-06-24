@@ -145,6 +145,20 @@ actor DuplicateFingerprintCache {
         return cached.fingerprint
     }
 
+    func validFingerprints(for assets: [PHAsset]) -> [String: CachedPhotoFingerprint] {
+        loadIfNeeded()
+        guard let fingerprints else { return [:] }
+        return Dictionary(uniqueKeysWithValues: assets.compactMap { asset in
+            let id = asset.localIdentifier
+            let signature = PhotoFingerprintSignature.make(for: asset)
+            guard let cached = fingerprints[id],
+                  cached.signature == signature else {
+                return nil
+            }
+            return (id, cached)
+        })
+    }
+
     func replace(with values: [String: CachedPhotoFingerprint]) throws {
         fingerprints = values
         let data = try JSONEncoder().encode(
