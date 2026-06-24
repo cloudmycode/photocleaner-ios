@@ -597,10 +597,21 @@ struct MonthlyReviewView: View {
             Text(deletionError ?? "")
         }
         .onAppear {
-            reviewedIDs = library.reviewedIDs(for: monthID)
-            markedIDs = library.markedIDs(for: monthID)
+            library.restoreMonthlyReviewProgressIfNeeded()
+            syncReviewState()
+        }
+        .onChange(of: library.reviewedIDs(for: monthID)) {
+            syncReviewState()
+        }
+        .onChange(of: library.markedIDs(for: monthID)) {
+            syncReviewState()
         }
         .assetPreview($previewAsset)
+    }
+
+    private func syncReviewState() {
+        reviewedIDs = library.reviewedIDs(for: monthID)
+        markedIDs = library.markedIDs(for: monthID)
     }
 
     private var reviewToolbar: some View {

@@ -181,6 +181,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private var isRestoringCachedBursts = false
     private var isRestoringMediaAssets = false
     private var isRestoringEmptyAlbums = false
+    private var isRestoringMonthlyReviewProgress = false
 
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -289,6 +290,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
         if !groups.isEmpty {
             monthGroups = groups
+            restoreMonthlyReviewProgressIfNeeded()
             rebuildAllMonthlyProgress()
         }
     }
@@ -828,7 +830,22 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
         monthlyReviewedIDs = reconciledReviewed
         monthlyMarkedIDs = reconciledMarked
+        rebuildAllMonthlyProgress()
         try? await monthlyReviewStore.save(monthlyReviewStates())
+    }
+
+    func restoreMonthlyReviewProgressIfNeeded() {
+        guard !monthGroups.isEmpty,
+              !isRestoringMonthlyReviewProgress else {
+            return
+        }
+        isRestoringMonthlyReviewProgress = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            await restoreMonthlyReviewProgress()
+            isRestoringMonthlyReviewProgress = false
+        }
     }
 
     private func persistMonthlyReviewProgress() {
