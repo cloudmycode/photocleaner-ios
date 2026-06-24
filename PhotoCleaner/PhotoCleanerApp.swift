@@ -14,7 +14,7 @@ struct PhotoCleanerApp: App {
                 }
                 .onChange(of: scenePhase) {
                     if scenePhase == .active {
-                        photoLibrary.start()
+                        photoLibrary.refreshAuthorizationStatus()
                     }
                 }
         }

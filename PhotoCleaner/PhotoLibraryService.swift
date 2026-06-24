@@ -164,6 +164,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private let monthlyAlbumsCache = MonthlyAlbumsCache()
     private var scanTask: Task<Void, Never>?
     private var libraryChangeDebounce: Task<Void, Never>?
+    private var hasRequestedStartupScan = false
 
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -189,7 +190,21 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 scanState = .idle
                 return
             }
+            guard !hasRequestedStartupScan else { return }
+            hasRequestedStartupScan = true
             refreshLibrary()
+        }
+    }
+
+    func refreshAuthorizationStatus() {
+        Task {
+            let previousStatus = authorizationStatus
+            authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            let hadAccess = previousStatus == .authorized || previousStatus == .limited
+            let hasAccess = authorizationStatus == .authorized || authorizationStatus == .limited
+            if !hadAccess, hasAccess, !hasHomeSummary {
+                start()
+            }
         }
     }
 
