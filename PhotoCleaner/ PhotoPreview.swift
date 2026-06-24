@@ -1733,6 +1733,9 @@ struct AssetPreviewView: View {
 
             if showDetail {
                 detailCard
+                    .padding(.horizontal, Self.border)
+                    .padding(.bottom, Self.border)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -1758,21 +1761,36 @@ struct AssetPreviewView: View {
     private var detailButton: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.22)) {
-                showDetail.toggle()
+                showDetail = true
             }
         } label: {
-            Image(systemName: showDetail ? "xmark" : "ellipsis")
+            Image(systemName: "ellipsis")
                 .font(.title3.bold())
                 .foregroundStyle(.white)
                 .frame(width: 50, height: 50)
                 .background(.ultraThinMaterial, in: Circle())
         }
-        .accessibilityLabel(Text(showDetail ? "hide.detail" : "show.detail"))
+        .accessibilityLabel(Text("show.detail"))
     }
 
     private var detailCard: some View {
-        VStack {
-            Spacer()
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showDetail = false
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.bold())
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                        .background(.thinMaterial, in: Circle())
+                }
+                .accessibilityLabel(Text("hide.detail"))
+            }
+
             VStack(alignment: .leading, spacing: 14) {
                 InfoPair(
                     title: String(localized: "photo.time"),
@@ -1807,12 +1825,12 @@ struct AssetPreviewView: View {
                         )
                 }
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-            .padding(.horizontal, 20)
-            .padding(.bottom, 100)
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .contentShape(RoundedRectangle(cornerRadius: 18))
+        .onTapGesture {}
         .task(id: asset.localIdentifier) {
             await loadDetailMetadata()
         }
