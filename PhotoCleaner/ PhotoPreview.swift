@@ -312,8 +312,8 @@ struct QuickCleanView: View {
             SimilarCleanView(mode: .duplicate)
         } else if item.kind == .burst {
             SimilarCleanView(mode: .burst)
-        } else if item.kind == .screenshot {
-            ScreenshotListCleanView(category: item)
+        } else if item.kind.usesAssetGrid {
+            AssetGridCleanView(category: item)
         } else {
             AssetSwipeCleanView(category: item)
         }
@@ -1510,7 +1510,7 @@ struct AssetSwipeCleanView: View {
     }
 }
 
-struct ScreenshotListCleanView: View {
+struct AssetGridCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     let category: CleanerCategory
 
@@ -1520,16 +1520,46 @@ struct ScreenshotListCleanView: View {
     @State private var operationError: String?
     @State private var previewAsset: IdentifiablePHAsset?
 
+    private var sourceAssets: [PHAsset] {
+        switch category.kind {
+        case .screenshot:
+            library.screenshotAssets
+        case .video:
+            library.videoAssets
+        case .largeVideo:
+            library.largeVideoAssets
+        case .recording:
+            library.screenRecordingAssets
+        default:
+            []
+        }
+    }
+
     private var assets: [PHAsset] {
-        library.screenshotAssets.filter { !removedIDs.contains($0.localIdentifier) }
+        sourceAssets.filter { !removedIDs.contains($0.localIdentifier) }
     }
 
     private var expectedCount: Int {
-        library.screenshotCount
+        switch category.kind {
+        case .screenshot:
+            library.screenshotCount
+        case .video:
+            library.videoAssets.count
+        case .largeVideo:
+            library.largeVideoAssets.count
+        case .recording:
+            library.screenRecordingAssets.count
+        default:
+            category.count
+        }
     }
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    }
+
+    private var showsVideoBadge: Bool {
+        category.kind == .video || category.kind == .largeVideo || category.kind == .recording
     }
 
     var body: some View {
@@ -1554,10 +1584,11 @@ struct ScreenshotListCleanView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 2) {
                         ForEach(assets, id: \.localIdentifier) { asset in
-                            ScreenshotListItem(
+                            AssetGridItem(
                                 asset: asset,
                                 isSelected: selectedIDs.contains(asset.localIdentifier),
                                 storageText: formattedStorage(library.storageBytes(for: asset)),
+                                showsVideoBadge: showsVideoBadge,
                                 onToggle: { toggleSelection(asset) },
                                 onPreview: {
                                     previewAsset = IdentifiablePHAsset(asset: asset)
@@ -1612,8 +1643,8 @@ struct ScreenshotListCleanView: View {
         } message: {
             Text(operationError ?? "")
         }
-        .onChange(of: library.screenshotAssets.map(\.localIdentifier)) {
-            let available = Set(library.screenshotAssets.map(\.localIdentifier))
+        .onChange(of: sourceAssets.map(\.localIdentifier)) {
+            let available = Set(sourceAssets.map(\.localIdentifier))
             selectedIDs = selectedIDs.intersection(available)
             removedIDs = removedIDs.intersection(available)
         }
@@ -1668,10 +1699,11 @@ struct ScreenshotListCleanView: View {
     }
 }
 
-private struct ScreenshotListItem: View {
+private struct AssetGridItem: View {
     let asset: PHAsset
     let isSelected: Bool
     let storageText: String
+    let showsVideoBadge: Bool
     let onToggle: () -> Void
     let onPreview: () -> Void
 
@@ -1684,6 +1716,16 @@ private struct ScreenshotListItem: View {
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
+
+                if showsVideoBadge {
+                    Image(systemName: "play.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.black.opacity(0.5), in: Circle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                        .allowsHitTesting(false)
+                }
 
                 selectionButton
                     .padding(6)
@@ -2366,7 +2408,7 @@ struct VideoCompressView: View {
             CleanerSection(title: String(localized: "section.videos")) {
                 ForEach(categories) { category in
                     NavigationLink {
-                        AssetSwipeCleanView(category: category)
+                        AssetGridCleanView(category: category)
                     } label: {
                         CategoryRow(item: category, loadingText: nil)
                     }
@@ -3039,6 +3081,15 @@ private struct InfoPair: View {
 struct CleanerCategory: Identifiable {
     enum Kind: Hashable {
         case duplicate, burst, screenshot, lowQuality, video, largeVideo, recording, emptyAlbum
+
+        var usesAssetGrid: Bool {
+            switch self {
+            case .screenshot, .video, .largeVideo, .recording:
+                return true
+            case .duplicate, .burst, .lowQuality, .emptyAlbum:
+                return false
+            }
+        }
     }
 
     var id: Kind { kind }
