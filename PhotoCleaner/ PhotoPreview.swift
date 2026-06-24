@@ -999,9 +999,11 @@ struct SimilarCleanView: View {
         }
         .onChange(of: groups.map(\.id)) {
             selectNonBestPhotos()
+            preheatGroupThumbnails()
         }
         .onAppear {
             selectNonBestPhotos()
+            preheatGroupThumbnails()
         }
         .background(Color.cleanerBackground)
     }
@@ -1098,6 +1100,19 @@ struct SimilarCleanView: View {
                     .map(\.id)
             )
         }
+    }
+
+    private func preheatGroupThumbnails() {
+        let assets = Array(
+            groups
+                .flatMap(\.assets)
+                .map(\.asset)
+                .prefix(180)
+        )
+        library.preheatThumbnails(
+            for: assets,
+            targetSize: CGSize(width: 132, height: 146)
+        )
     }
 
     private var titleKey: LocalizedStringKey {

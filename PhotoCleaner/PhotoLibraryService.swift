@@ -456,6 +456,23 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    func preheatThumbnails(for assets: [PHAsset], targetSize: CGSize) {
+        guard !assets.isEmpty else { return }
+        let scale = UIScreen.main.scale
+        let pixelSize = CGSize(width: targetSize.width * scale, height: targetSize.height * scale)
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .opportunistic
+        options.resizeMode = .fast
+        options.isNetworkAccessAllowed = true
+
+        imageManager.startCachingImages(
+            for: assets,
+            targetSize: pixelSize,
+            contentMode: .aspectFill,
+            options: options
+        )
+    }
+
     func cancelImageRequest(_ requestID: PHImageRequestID) {
         imageManager.cancelImageRequest(requestID)
     }
@@ -1390,7 +1407,9 @@ struct PhotoThumbnailView: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                ProgressView()
+                Image(systemName: "photo")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary.opacity(0.55))
             }
         }
         .clipped()
