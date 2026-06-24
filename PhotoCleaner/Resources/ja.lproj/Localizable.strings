@@ -50,6 +50,8 @@
 "photo.location" = "場所";
 "photo.model" = "デバイス";
 "photo.size" = "サイズ";
+"photo.pixel.dimensions" = "ピクセルサイズ";
+"photo.storage.size" = "ストレージ";
 "select" = "選択";
 "unselect" = "選択解除";
 "undo" = "取り消す";

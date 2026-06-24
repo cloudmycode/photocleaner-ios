@@ -474,6 +474,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    nonisolated func storageBytes(for asset: PHAsset) -> Int64 {
+        Self.assetStorageBytes(asset)
+    }
+
     func deleteEmptyAlbum(with localIdentifier: String) async throws {
         let collections = PHAssetCollection.fetchAssetCollections(
             withLocalIdentifiers: [localIdentifier],

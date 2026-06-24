@@ -50,6 +50,8 @@
 "photo.location" = "Location";
 "photo.model" = "Device";
 "photo.size" = "Size";
+"photo.pixel.dimensions" = "Pixel Dimensions";
+"photo.storage.size" = "Storage";
 "select" = "Select";
 "unselect" = "Unselect";
 "undo" = "Undo";

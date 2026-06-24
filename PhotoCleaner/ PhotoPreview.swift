@@ -1,4 +1,5 @@
 import AVKit
+import CoreLocation
 import Photos
 import PhotosUI
 import SwiftUI
@@ -1677,6 +1678,8 @@ struct AssetPreviewView: View {
     @State private var offset: CGSize = .zero
     @State private var settledOffset: CGSize = .zero
     @State private var showDetail: Bool = false
+    @State private var locationDescription: String = "-"
+    @State private var storageDescription: String = "-"
 
     private static let border: CGFloat = 20
 
@@ -1777,14 +1780,16 @@ struct AssetPreviewView: View {
                         .formatted(date: .abbreviated, time: .shortened) ?? "-"
                 )
                 InfoPair(
-                    title: String(localized: "photo.model"),
+                    title: String(localized: "photo.pixel.dimensions"),
                     value: "\(asset.pixelWidth) x \(asset.pixelHeight)"
                 )
                 InfoPair(
+                    title: String(localized: "photo.storage.size"),
+                    value: storageDescription
+                )
+                InfoPair(
                     title: String(localized: "photo.location"),
-                    value: asset.location == nil
-                        ? "-"
-                        : String(localized: "location.available")
+                    value: locationDescription
                 )
                 if let onToggle {
                     Divider().padding(.vertical, 4)
@@ -1807,6 +1812,9 @@ struct AssetPreviewView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
             .padding(.horizontal, 20)
             .padding(.bottom, 100)
+        }
+        .task(id: asset.localIdentifier) {
+            await loadDetailMetadata()
         }
     }
 
@@ -1887,6 +1895,45 @@ struct AssetPreviewView: View {
             settledScale = 1
             offset = .zero
             settledOffset = .zero
+        }
+    }
+
+    @MainActor
+    private func loadDetailMetadata() async {
+        storageDescription = formattedStorage(library.storageBytes(for: asset))
+        guard let location = asset.location else {
+            locationDescription = "-"
+            return
+        }
+        locationDescription = await Self.locationDescription(for: location)
+    }
+
+    private static func locationDescription(for location: CLLocation) async -> String {
+        let coordinateText = String(
+            format: "%.5f, %.5f",
+            location.coordinate.latitude,
+            location.coordinate.longitude
+        )
+        do {
+            let placemark = try await CLGeocoder().reverseGeocodeLocation(location).first
+            let parts = [
+                placemark?.name,
+                placemark?.subLocality,
+                placemark?.locality,
+                placemark?.administrativeArea,
+                placemark?.country
+            ]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            var uniqueParts: [String] = []
+            for part in parts where !uniqueParts.contains(part) {
+                uniqueParts.append(part)
+            }
+            return uniqueParts.isEmpty ? coordinateText : uniqueParts.joined(separator: ", ")
+        } catch {
+            return coordinateText
         }
     }
 }

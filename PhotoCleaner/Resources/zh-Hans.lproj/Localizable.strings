@@ -50,6 +50,8 @@
 "photo.location" = "地点";
 "photo.model" = "设备";
 "photo.size" = "大小";
+"photo.pixel.dimensions" = "像素尺寸";
+"photo.storage.size" = "存储空间";
 "select" = "选择";
 "unselect" = "取消选择";
 "undo" = "撤销";
