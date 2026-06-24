@@ -45,6 +45,17 @@ private struct LibrarySnapshot {
     let mediaStorageBytes: Int64
 }
 
+private struct HomeLibrarySummary: Codable {
+    let photoCount: Int
+    let videoCount: Int
+    let screenshotCount: Int
+    let largeVideoCount: Int
+    let screenRecordingCount: Int
+    let duplicateCandidateCount: Int
+    let burstCandidateCount: Int
+    let mediaStorageBytes: Int64
+}
+
 @MainActor
 final class PhotoLibraryService: NSObject, ObservableObject {
     enum ScanState: Equatable {
@@ -72,9 +83,16 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     @Published private(set) var scanState: ScanState = .idle
     @Published private(set) var analysisCacheSize: Int64 = 0
     @Published private(set) var mediaStorageBytes: Int64 = 0
+    @Published private(set) var hasHomeSummary = false
+    @Published private(set) var isUsingCachedHomeSummary = false
+    @Published private(set) var largeVideoCount = 0
+    @Published private(set) var screenRecordingCount = 0
+    @Published private(set) var duplicateCandidateCount = 0
+    @Published private(set) var burstCandidateCount = 0
 
     let imageManager = PHCachingImageManager()
 
+    nonisolated private static let homeSummaryKey = "photoCleaner.homeLibrarySummary.v1"
     nonisolated private static let fallbackShotInterval: TimeInterval = 3
     nonisolated private static let fallbackSequenceDuration: TimeInterval = 10
     private let analysisCache = SimilarAnalysisCache()
@@ -85,6 +103,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         super.init()
+        restoreHomeSummary()
         PHPhotoLibrary.shared().register(self)
     }
 
@@ -111,22 +130,54 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         UIApplication.shared.open(url)
     }
 
+    private func restoreHomeSummary() {
+        guard let data = UserDefaults.standard.data(forKey: Self.homeSummaryKey),
+              let summary = try? JSONDecoder().decode(HomeLibrarySummary.self, from: data) else {
+            return
+        }
+        photoCount = summary.photoCount
+        videoCount = summary.videoCount
+        screenshotCount = summary.screenshotCount
+        largeVideoCount = summary.largeVideoCount
+        screenRecordingCount = summary.screenRecordingCount
+        duplicateCandidateCount = summary.duplicateCandidateCount
+        burstCandidateCount = summary.burstCandidateCount
+        mediaStorageBytes = summary.mediaStorageBytes
+        hasHomeSummary = true
+        isUsingCachedHomeSummary = true
+    }
+
+    private func persistHomeSummary() {
+        let summary = HomeLibrarySummary(
+            photoCount: photoCount,
+            videoCount: videoCount,
+            screenshotCount: screenshotCount,
+            largeVideoCount: largeVideoCount,
+            screenRecordingCount: screenRecordingCount,
+            duplicateCandidateCount: duplicateCandidateCount,
+            burstCandidateCount: burstCandidateCount,
+            mediaStorageBytes: mediaStorageBytes
+        )
+        guard let data = try? JSONEncoder().encode(summary) else { return }
+        UserDefaults.standard.set(data, forKey: Self.homeSummaryKey)
+        hasHomeSummary = true
+    }
+
     func refreshLibrary() {
         scanTask?.cancel()
         scanTask = Task { [weak self] in
             guard let self else { return }
             scanState = .loadingLibrary
-            photoCount = 0
-            videoCount = 0
-            screenshotCount = 0
-            mediaStorageBytes = 0
-            screenshotAssets = []
-            videoAssets = []
-            largeVideoAssets = []
-            screenRecordingAssets = []
-            monthGroups = []
-            duplicateGroups = []
-            burstGroups = []
+            if !hasHomeSummary {
+                photoCount = 0
+                videoCount = 0
+                screenshotCount = 0
+                largeVideoCount = 0
+                screenRecordingCount = 0
+                duplicateCandidateCount = 0
+                burstCandidateCount = 0
+                mediaStorageBytes = 0
+            }
             duplicateScanProgress = nil
 
             let snapshot = await Task.detached(priority: .utility) {
@@ -140,15 +191,20 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             screenshotCount = snapshot.screenshotAssets.count
             videoAssets = snapshot.videoAssets
             largeVideoAssets = snapshot.largeVideoAssets
+            largeVideoCount = snapshot.largeVideoAssets.count
             screenRecordingAssets = snapshot.screenRecordingAssets
+            screenRecordingCount = snapshot.screenRecordingAssets.count
             monthGroups = snapshot.monthGroups
             burstGroups = snapshot.initialBurstGroups
+            burstCandidateCount = Self.cleanableCount(in: snapshot.initialBurstGroups)
             mediaStorageBytes = snapshot.mediaStorageBytes
+            persistHomeSummary()
 
             await restoreMonthlyReviewProgress()
             await Task.yield()
 
             await scanDuplicates(in: snapshot.imageAssets)
+            persistHomeSummary()
 
             var analyzedBurstGroups = snapshot.initialBurstGroups
             let candidates = snapshot.burstCandidates
@@ -179,6 +235,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                     burstGroups = analyzedBurstGroups.sorted {
                         ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
                     }
+                    burstCandidateCount = Self.cleanableCount(in: burstGroups)
                 }
                 scanState = .analyzing(current: index + 1, total: candidates.count)
                 await Task.yield()
@@ -186,6 +243,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             try? await analysisCache.replace(with: activeCache)
             analysisCacheSize = await analysisCache.sizeInBytes() +
                 duplicateCache.sizeInBytes()
+            persistHomeSummary()
             scanState = .finished
         }
     }
@@ -389,8 +447,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             .sorted {
                 ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
             }
+        duplicateCandidateCount = Self.cleanableCount(in: duplicateGroups)
         try? await duplicateCache.replace(with: activeCache)
         duplicateScanProgress = nil
+    }
+
+    nonisolated private static func cleanableCount(in groups: [SimilarAssetGroup]) -> Int {
+        groups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
     }
 
     private func analyzeBurstGroup(_ assets: [PHAsset]) async -> SimilarAssetGroup? {

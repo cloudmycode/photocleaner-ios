@@ -49,21 +49,17 @@ struct QuickCleanView: View {
 
     private var photoItems: [CleanerCategory] {
         [
-            CleanerCategory.duplicates(
-                count: library.duplicateGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
-            ),
-            CleanerCategory.bursts(
-                count: library.burstGroups.reduce(0) { $0 + max($1.assets.count - 1, 0) }
-            ),
-            CleanerCategory.screenshots(count: library.screenshotAssets.count)
+            CleanerCategory.duplicates(count: library.duplicateCandidateCount),
+            CleanerCategory.bursts(count: library.burstCandidateCount),
+            CleanerCategory.screenshots(count: library.screenshotCount)
         ]
     }
 
     private var videoItems: [CleanerCategory] {
         [
-            CleanerCategory.allVideos(count: library.videoAssets.count),
-            CleanerCategory.largeVideos(count: library.largeVideoAssets.count),
-            CleanerCategory.screenRecordings(count: library.screenRecordingAssets.count)
+            CleanerCategory.allVideos(count: library.videoCount),
+            CleanerCategory.largeVideos(count: library.largeVideoCount),
+            CleanerCategory.screenRecordings(count: library.screenRecordingCount)
         ]
     }
 
@@ -91,7 +87,7 @@ struct QuickCleanView: View {
                 CleanerSection(title: String(localized: "section.photos")) {
                     ForEach(photoItems) { item in
                         let loadingText = loadingText(for: item)
-                        if loadingText == nil {
+                        if canOpen(item) {
                             NavigationLink {
                                 destination(for: item)
                             } label: {
@@ -112,7 +108,7 @@ struct QuickCleanView: View {
                 CleanerSection(title: String(localized: "section.videos")) {
                     ForEach(videoItems) { item in
                         let loadingText = loadingText(for: item)
-                        if loadingText == nil {
+                        if canOpen(item) {
                             NavigationLink {
                                 destination(for: item)
                             } label: {
@@ -179,6 +175,8 @@ struct QuickCleanView: View {
     }
 
     private func loadingText(for item: CleanerCategory) -> String? {
+        guard !library.isUsingCachedHomeSummary else { return nil }
+
         if case .loadingLibrary = library.scanState {
             return String(localized: "library.reading")
         }
@@ -209,6 +207,27 @@ struct QuickCleanView: View {
         return nil
     }
 
+    private func canOpen(_ item: CleanerCategory) -> Bool {
+        if case .loadingLibrary = library.scanState {
+            return false
+        }
+
+        switch item.kind {
+        case .duplicate:
+            return library.duplicateScanProgress == nil
+        case .burst:
+            if library.duplicateScanProgress != nil {
+                return false
+            }
+            if case let .analyzing(current, total) = library.scanState {
+                return current >= total
+            }
+            return true
+        default:
+            return true
+        }
+    }
+
     private func showLoadingToast() {
         toastTask?.cancel()
         withAnimation(.easeInOut(duration: 0.18)) {
@@ -232,6 +251,9 @@ struct QuickCleanView: View {
         case .notDetermined:
             return String(localized: "photo.access.requesting")
         default:
+            if library.isUsingCachedHomeSummary {
+                return String(localized: "analysis.complete")
+            }
             if case .loadingLibrary = library.scanState {
                 return String(localized: "library.reading")
             }
