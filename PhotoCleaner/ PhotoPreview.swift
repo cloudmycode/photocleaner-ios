@@ -1563,6 +1563,75 @@ struct AssetGridCleanView: View {
     }
 
     var body: some View {
+        let base: some View = contentView
+            .navigationTitle(category.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        if allSelected { selectedIDs.removeAll() }
+                        else { selectedIDs.formUnion(Set(assets.map(\.localIdentifier))) }
+                    } label: {
+                        Text(allSelected ? "select.none" : "select.all")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.cleanerBlue)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .animatedTabBarHidden()
+            .background(Color.cleanerBackground)
+
+        return base
+            .overlay(alignment: .bottomTrailing) {
+                if !selectedIDs.isEmpty {
+                    selectedDeleteButton
+                        .padding(.trailing, 18)
+                        .padding(.bottom, 18)
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.18), value: selectedIDs)
+            .assetPreview(
+                $previewAsset,
+                isSelected: { selectedIDs.contains($0) },
+                onToggle: { item in toggleSelection(item.asset) }
+            )
+            .confirmationDialog(
+                "month.delete.confirm.title",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("month.delete.confirm.action", role: .destructive) {
+                    deleteSelected()
+                }
+                Button("cancel", role: .cancel) {}
+            } message: {
+                Text(String.localizedStringWithFormat(
+                    String(localized: "month.delete.confirm.message"),
+                    selectedIDs.count
+                ))
+            }
+            .alert("operation.failed", isPresented: Binding(
+                get: { operationError != nil },
+                set: { if !$0 { operationError = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(operationError ?? "")
+            }
+            .onChange(of: sourceAssets.map(\.localIdentifier)) {
+                let available = Set(sourceAssets.map(\.localIdentifier))
+                selectedIDs = selectedIDs.intersection(available)
+                removedIDs = removedIDs.intersection(available)
+            }
+            .onAppear {
+                library.restoreMediaAssetsIfNeeded()
+            }
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
         Group {
             if assets.isEmpty {
                 if expectedCount > 0 {
@@ -1581,75 +1650,30 @@ struct AssetGridCleanView: View {
                     )
                 }
             } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2) {
-                        ForEach(assets, id: \.localIdentifier) { asset in
-                            AssetGridItem(
-                                asset: asset,
-                                isSelected: selectedIDs.contains(asset.localIdentifier),
-                                storageText: formattedStorage(library.storageBytes(for: asset)),
-                                showsVideoBadge: showsVideoBadge,
-                                onToggle: { toggleSelection(asset) },
-                                onPreview: {
-                                    previewAsset = IdentifiablePHAsset(asset: asset)
-                                }
-                            )
+                gridView
+            }
+        }
+    }
+
+    private var gridView: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 2) {
+                ForEach(assets, id: \.localIdentifier) { asset in
+                    AssetGridItem(
+                        asset: asset,
+                        isSelected: selectedIDs.contains(asset.localIdentifier),
+                        storageText: formattedStorage(library.storageBytes(for: asset)),
+                        showsVideoBadge: showsVideoBadge,
+                        onToggle: { toggleSelection(asset) },
+                        onPreview: {
+                            previewAsset = IdentifiablePHAsset(asset: asset)
                         }
-                    }
-                    .padding(.horizontal, 2)
-                    .padding(.top, 2)
-                    .padding(.bottom, selectedIDs.isEmpty ? 24 : 104)
+                    )
                 }
             }
-        }
-        .navigationTitle(category.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .animatedTabBarHidden()
-        .background(Color.cleanerBackground)
-        .overlay(alignment: .bottomTrailing) {
-            if !selectedIDs.isEmpty {
-                selectedDeleteButton
-                    .padding(.trailing, 18)
-                    .padding(.bottom, 18)
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.18), value: selectedIDs)
-        .assetPreview(
-            $previewAsset,
-            isSelected: { selectedIDs.contains($0) },
-            onToggle: { item in toggleSelection(item.asset) }
-        )
-        .confirmationDialog(
-            "month.delete.confirm.title",
-            isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("month.delete.confirm.action", role: .destructive) {
-                deleteSelected()
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text(String.localizedStringWithFormat(
-                String(localized: "month.delete.confirm.message"),
-                selectedIDs.count
-            ))
-        }
-        .alert("operation.failed", isPresented: Binding(
-            get: { operationError != nil },
-            set: { if !$0 { operationError = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(operationError ?? "")
-        }
-        .onChange(of: sourceAssets.map(\.localIdentifier)) {
-            let available = Set(sourceAssets.map(\.localIdentifier))
-            selectedIDs = selectedIDs.intersection(available)
-            removedIDs = removedIDs.intersection(available)
-        }
-        .onAppear {
-            library.restoreMediaAssetsIfNeeded()
+            .padding(.horizontal, 2)
+            .padding(.top, 2)
+            .padding(.bottom, selectedIDs.isEmpty ? 24 : 104)
         }
     }
 
@@ -1674,6 +1698,10 @@ struct AssetGridCleanView: View {
             .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
         }
         .accessibilityLabel(Text("month.delete.marked"))
+    }
+
+    private var allSelected: Bool {
+        !assets.isEmpty && Set(assets.map(\.localIdentifier)).isSubset(of: selectedIDs)
     }
 
     private func toggleSelection(_ asset: PHAsset) {
@@ -1741,10 +1769,7 @@ private struct AssetGridItem: View {
             .clipShape(Rectangle())
             .overlay {
                 Rectangle()
-                    .stroke(
-                        isSelected ? Color.cleanerBlue : Color.cleanerBorder,
-                        lineWidth: isSelected ? 2 : 0.5
-                    )
+                    .stroke(Color.cleanerBorder, lineWidth: 0.5)
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: onPreview)
