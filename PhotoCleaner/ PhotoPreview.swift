@@ -2,6 +2,7 @@ import AVKit
 import CoreLocation
 import Photos
 import PhotosUI
+import Speech
 import SwiftUI
 
 struct ContentView: View {
@@ -44,10 +45,10 @@ struct ContentView: View {
             .tag(AppTab.albums)
 
             NavigationStack {
-                VideoCompressView()
+                SmartPhotoSearchView()
             }
             .tabBarSyncedWithNavigation()
-            .tabItem { Label(String(localized: "tab.compress"), systemImage: "video.badge.waveform") }
+            .tabItem { Label(String(localized: "tab.smart.search"), systemImage: "mic.badge.plus") }
             .tag(AppTab.compress)
 
             NavigationStack {
@@ -2745,6 +2746,562 @@ struct VideoCompressView: View {
         }
         .background(Color.cleanerBackground)
         .animatedTabBarVisible()
+    }
+}
+
+struct SmartPhotoSearchView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    @StateObject private var speech = PhotoSearchSpeechInput()
+
+    @State private var queryText = ""
+    @State private var parsedQuery: PhotoSearchQuery?
+    @State private var results: [PHAsset] = []
+    @State private var isParsing = false
+    @State private var isSearching = false
+    @State private var errorMessage: String?
+    @State private var previewAsset: IdentifiablePHAsset?
+    @State private var didStartPress = false
+
+    private let parser = CloudPhotoSearchParser()
+
+    var body: some View {
+        CleanerScroll {
+            CleanerHeader(title: String(localized: "tab.smart.search"))
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text("smart.search.prompt")
+                    .font(.headline)
+
+                TextField("smart.search.placeholder", text: $queryText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(2...4)
+                    .padding(14)
+                    .background(Color.cleanerCard, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.cleanerBorder, lineWidth: 1)
+                    }
+
+                HStack(spacing: 12) {
+                    holdToSpeakButton
+
+                    Button {
+                        submitQuery(queryText)
+                    } label: {
+                        HStack(spacing: 8) {
+                            if isParsing || isSearching {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                            Text("smart.search.start")
+                                .font(.subheadline.bold())
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .disabled(queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isParsing || isSearching)
+                }
+
+                if speech.isRecording {
+                    Text("smart.search.listening")
+                        .font(.caption)
+                        .foregroundStyle(Color.cleanerBlue)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+
+            if let parsedQuery {
+                CleanerSection(title: String(localized: "smart.search.understood")) {
+                    SearchUnderstandingView(query: parsedQuery)
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+            }
+
+            CleanerSection(title: resultsTitle) {
+                if isSearching {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("smart.search.searching")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+                } else if results.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "photo.stack")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(Color.cleanerBlue)
+                        Text(parsedQuery == nil ? "smart.search.empty.idle" : "smart.search.empty.results")
+                            .font(.subheadline.weight(.semibold))
+                        Text("smart.search.empty.description")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                } else {
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3),
+                        spacing: 2
+                    ) {
+                        ForEach(results, id: \.localIdentifier) { asset in
+                            AssetGridItem(
+                                asset: asset,
+                                isSelected: false,
+                                storageText: formattedStorage(library.storageBytes(for: asset)),
+                                showsVideoBadge: asset.mediaType == .video,
+                                onToggle: {},
+                                onPreview: { previewAsset = IdentifiablePHAsset(asset: asset) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.bottom, 20)
+                }
+            }
+        }
+        .background(Color.cleanerBackground)
+        .animatedTabBarVisible()
+        .assetPreview($previewAsset)
+        .onChange(of: speech.transcript) {
+            queryText = speech.transcript
+        }
+        .alert("smart.search.network.title", isPresented: Binding(
+            get: { errorMessage != nil && parsedQuery == nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var resultsTitle: String {
+        if parsedQuery == nil {
+            return String(localized: "smart.search.results")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "smart.search.results.format"),
+            results.count
+        )
+    }
+
+    private var holdToSpeakButton: some View {
+        Button {} label: {
+            Image(systemName: speech.isRecording ? "waveform" : "mic.fill")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(width: 54, height: 50)
+                .background(speech.isRecording ? Color.red : Color.cleanerBlue, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard !didStartPress else { return }
+                    didStartPress = true
+                    errorMessage = nil
+                    queryText = ""
+                    speech.start()
+                }
+                .onEnded { _ in
+                    didStartPress = false
+                    speech.stop()
+                    let spoken = speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !spoken.isEmpty {
+                        queryText = spoken
+                        submitQuery(spoken)
+                    }
+                }
+        )
+        .accessibilityLabel(Text("smart.search.hold.to.speak"))
+    }
+
+    private func submitQuery(_ rawText: String) {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isParsing else { return }
+        errorMessage = nil
+        parsedQuery = nil
+        results = []
+        isParsing = true
+        Task {
+            do {
+                let query = try await parser.parse(text)
+                parsedQuery = query
+                isParsing = false
+                runSearch(query)
+            } catch {
+                isParsing = false
+                isSearching = false
+                errorMessage = String(localized: "smart.search.network.unavailable")
+            }
+        }
+    }
+
+    private func runSearch(_ query: PhotoSearchQuery) {
+        isSearching = true
+        Task {
+            let assets = await Task.detached(priority: .userInitiated) {
+                PhotoSearchEngine.search(query)
+            }.value
+            results = assets
+            isSearching = false
+        }
+    }
+}
+
+private struct SearchUnderstandingView: View {
+    let query: PhotoSearchQuery
+
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(query.displayChips, id: \.self) { chip in
+                Text(chip)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.cleanerBlue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.cleanerBlue.opacity(0.12), in: Capsule())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 0
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+private final class PhotoSearchSpeechInput: NSObject, ObservableObject {
+    @Published var transcript = ""
+    @Published var isRecording = false
+
+    private let audioEngine = AVAudioEngine()
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: Locale.current.identifier))
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+
+    func start() {
+        guard !isRecording else { return }
+        SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            DispatchQueue.main.async {
+                guard status == .authorized else { return }
+                self?.startRecording()
+            }
+        }
+    }
+
+    func stop() {
+        guard isRecording else { return }
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        request?.endAudio()
+        isRecording = false
+    }
+
+    private func startRecording() {
+        task?.cancel()
+        task = nil
+        transcript = ""
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.record, mode: .measurement, options: .duckOthers)
+        try? session.setActive(true, options: .notifyOthersOnDeactivation)
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        self.request = request
+
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak request] buffer, _ in
+            request?.append(buffer)
+        }
+
+        audioEngine.prepare()
+        do {
+            try audioEngine.start()
+            isRecording = true
+        } catch {
+            isRecording = false
+            return
+        }
+
+        task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
+            DispatchQueue.main.async {
+                if let result {
+                    self?.transcript = result.bestTranscription.formattedString
+                }
+                if error != nil || result?.isFinal == true {
+                    self?.stop()
+                }
+            }
+        }
+    }
+}
+
+private struct PhotoSearchQuery: Decodable {
+    var summary: String?
+    var mediaTypes: [String]?
+    var assetTypes: [String]?
+    var dateRange: DateRange?
+    var locations: [String]?
+    var locationBounds: [LocationBounds]?
+    var minSizeMB: Double?
+    var maxSizeMB: Double?
+    var hasLocation: Bool?
+    var keywords: [String]?
+
+    struct DateRange: Decodable {
+        var start: String?
+        var end: String?
+    }
+
+    struct LocationBounds: Decodable {
+        var name: String?
+        var minLatitude: Double
+        var maxLatitude: Double
+        var minLongitude: Double
+        var maxLongitude: Double
+    }
+
+    var displayChips: [String] {
+        var chips: [String] = []
+        if let summary, !summary.isEmpty { chips.append(summary) }
+        chips.append(contentsOf: (mediaTypes ?? []).map(Self.mediaTypeLabel))
+        chips.append(contentsOf: (assetTypes ?? []).map(Self.assetTypeLabel))
+        if let start = dateRange?.start, let end = dateRange?.end {
+            chips.append("\(start) - \(end)")
+        } else if let start = dateRange?.start {
+            chips.append(">= \(start)")
+        } else if let end = dateRange?.end {
+            chips.append("<= \(end)")
+        }
+        chips.append(contentsOf: locations ?? [])
+        if let minSizeMB { chips.append(String(format: ">= %.0f MB", minSizeMB)) }
+        if let maxSizeMB { chips.append(String(format: "<= %.0f MB", maxSizeMB)) }
+        if let hasLocation {
+            chips.append(String(localized: hasLocation ? "smart.search.has.location" : "smart.search.no.location"))
+        }
+        chips.append(contentsOf: (keywords ?? []).map { "#\($0)" })
+        return chips.isEmpty ? [String(localized: "smart.search.understood.default")] : chips
+    }
+
+    private static func mediaTypeLabel(_ type: String) -> String {
+        switch type.lowercased() {
+        case "image", "photo":
+            return String(localized: "smart.search.type.image")
+        case "video":
+            return String(localized: "smart.search.type.video")
+        default:
+            return type
+        }
+    }
+
+    private static func assetTypeLabel(_ type: String) -> String {
+        switch type.lowercased() {
+        case "screenshot":
+            return String(localized: "smart.search.asset.screenshot")
+        case "live", "livephoto", "live_photo":
+            return String(localized: "smart.search.asset.live")
+        case "screenrecording", "screen_recording":
+            return String(localized: "smart.search.asset.screen_recording")
+        default:
+            return type
+        }
+    }
+}
+
+private struct CloudPhotoSearchParser {
+    func parse(_ text: String) async throws -> PhotoSearchQuery {
+        guard let endpoint = Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseEndpoint") as? String,
+              let url = URL(string: endpoint),
+              !endpoint.isEmpty else {
+            throw URLError(.notConnectedToInternet)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = [
+            "query": text,
+            "locale": Locale.current.identifier,
+            "timezone": TimeZone.current.identifier
+        ]
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(PhotoSearchQuery.self, from: data)
+    }
+}
+
+private enum PhotoSearchEngine {
+    static func search(_ query: PhotoSearchQuery) -> [PHAsset] {
+        let assets = fetchAssets(for: query)
+        let startDate = parseDate(query.dateRange?.start, endOfDay: false)
+        let endDate = parseDate(query.dateRange?.end, endOfDay: true)
+        let bounds = allLocationBounds(for: query)
+        let minBytes = query.minSizeMB.map { Int64($0 * 1_000_000) }
+        let maxBytes = query.maxSizeMB.map { Int64($0 * 1_000_000) }
+
+        return assets.filter { asset in
+            if let startDate, (asset.creationDate ?? .distantPast) < startDate { return false }
+            if let endDate, (asset.creationDate ?? .distantFuture) > endDate { return false }
+            if let hasLocation = query.hasLocation, (asset.location != nil) != hasLocation { return false }
+            if !bounds.isEmpty {
+                guard let coordinate = asset.location?.coordinate,
+                      bounds.contains(where: { $0.contains(coordinate) }) else {
+                    return false
+                }
+            }
+            if let assetTypes = query.assetTypes, !assetTypes.isEmpty, !matchesAssetTypes(asset, assetTypes) {
+                return false
+            }
+            if minBytes != nil || maxBytes != nil {
+                let bytes = storageBytes(asset)
+                if let minBytes, bytes < minBytes { return false }
+                if let maxBytes, bytes > maxBytes { return false }
+            }
+            return true
+        }
+    }
+
+    private static func fetchAssets(for query: PhotoSearchQuery) -> [PHAsset] {
+        let wantsImages = query.mediaTypes?.contains { $0.lowercased() == "image" || $0.lowercased() == "photo" } ?? true
+        let wantsVideos = query.mediaTypes?.contains { $0.lowercased() == "video" } ?? true
+        var assets: [PHAsset] = []
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        if wantsImages {
+            let images = PHAsset.fetchAssets(with: .image, options: options)
+            images.enumerateObjects { asset, _, _ in assets.append(asset) }
+        }
+        if wantsVideos {
+            let videos = PHAsset.fetchAssets(with: .video, options: options)
+            videos.enumerateObjects { asset, _, _ in assets.append(asset) }
+        }
+        return assets.sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+    }
+
+    private static func matchesAssetTypes(_ asset: PHAsset, _ types: [String]) -> Bool {
+        types.contains { rawType in
+            switch rawType.lowercased() {
+            case "screenshot":
+                asset.mediaSubtypes.contains(.photoScreenshot)
+            case "live", "livephoto", "live_photo":
+                asset.mediaSubtypes.contains(.photoLive)
+            case "screenrecording", "screen_recording":
+                asset.mediaSubtypes.contains(.videoScreenRecording)
+            default:
+                false
+            }
+        }
+    }
+
+    private static func allLocationBounds(for query: PhotoSearchQuery) -> [PhotoSearchQuery.LocationBounds] {
+        var result = query.locationBounds ?? []
+        for location in query.locations ?? [] {
+            if let known = knownBounds(for: location) {
+                result.append(known)
+            }
+        }
+        return result
+    }
+
+    private static func knownBounds(for location: String) -> PhotoSearchQuery.LocationBounds? {
+        let normalized = location.lowercased()
+        if normalized.contains("海南") || normalized.contains("hainan") {
+            return PhotoSearchQuery.LocationBounds(
+                name: "海南",
+                minLatitude: 18.0,
+                maxLatitude: 20.3,
+                minLongitude: 108.3,
+                maxLongitude: 111.2
+            )
+        }
+        return nil
+    }
+
+    private static func parseDate(_ value: String?, endOfDay: Bool) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: value) else { return nil }
+        if endOfDay {
+            return Calendar.current.date(byAdding: DateComponents(day: 1, second: -1), to: date)
+        }
+        return date
+    }
+
+    private static func storageBytes(_ asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
+            if let fileSize = resource.value(forKey: "fileSize") as? NSNumber {
+                return total + fileSize.int64Value
+            }
+            return total
+        }
+    }
+}
+
+private extension PhotoSearchQuery.LocationBounds {
+    func contains(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        coordinate.latitude >= minLatitude &&
+            coordinate.latitude <= maxLatitude &&
+            coordinate.longitude >= minLongitude &&
+            coordinate.longitude <= maxLongitude
     }
 }
 

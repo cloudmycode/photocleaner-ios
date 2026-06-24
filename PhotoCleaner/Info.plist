@@ -26,6 +26,12 @@
 	<string>Smart Cleaner may save compressed videos back to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Smart Cleaner needs photo library access to find duplicate and similar media.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Smart Cleaner needs microphone access so you can search photos by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Smart Cleaner uses speech recognition to turn your voice into photo search text.</string>
+	<key>PhotoQueryParseEndpoint</key>
+	<string></string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
