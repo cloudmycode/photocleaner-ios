@@ -32,24 +32,28 @@ struct ContentView: View {
             NavigationStack {
                 QuickCleanView()
             }
+            .tabBarSyncedWithNavigation()
             .tabItem { Label(String(localized: "tab.quick"), systemImage: "sparkles.rectangle.stack") }
             .tag(AppTab.clean)
 
             NavigationStack {
                 AlbumsView()
             }
+            .tabBarSyncedWithNavigation()
             .tabItem { Label(String(localized: "tab.albums"), systemImage: "photo.on.rectangle") }
             .tag(AppTab.albums)
 
             NavigationStack {
                 VideoCompressView()
             }
+            .tabBarSyncedWithNavigation()
             .tabItem { Label(String(localized: "tab.compress"), systemImage: "video.badge.waveform") }
             .tag(AppTab.compress)
 
             NavigationStack {
                 SettingsView()
             }
+            .tabBarSyncedWithNavigation()
             .tabItem { Label(String(localized: "tab.settings"), systemImage: "gearshape") }
             .tag(AppTab.settings)
         }
@@ -2939,6 +2943,10 @@ private extension View {
     func animatedTabBarHidden() -> some View {
         background(TabBarVisibilityAnimator(isHidden: true).frame(width: 0, height: 0))
     }
+
+    func tabBarSyncedWithNavigation() -> some View {
+        background(TabBarNavigationSync().frame(width: 0, height: 0))
+    }
 }
 
 private struct TabBarVisibilityAnimator: UIViewControllerRepresentable {
@@ -2954,6 +2962,46 @@ private struct TabBarVisibilityAnimator: UIViewControllerRepresentable {
 
     static func dismantleUIViewController(_ controller: TabBarVisibilityController, coordinator: ()) {
         controller.setTabBarHidden(false, animated: true)
+    }
+}
+
+private struct TabBarNavigationSync: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> TabBarNavigationSyncController {
+        TabBarNavigationSyncController()
+    }
+
+    func updateUIViewController(_ controller: TabBarNavigationSyncController, context: Context) {
+        controller.installIfNeeded()
+    }
+}
+
+private final class TabBarNavigationSyncController: UIViewController, UINavigationControllerDelegate {
+    private weak var observedNavigationController: UINavigationController?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        installIfNeeded()
+    }
+
+    func installIfNeeded() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let navigationController = self.navigationController,
+                  self.observedNavigationController !== navigationController else {
+                return
+            }
+            self.observedNavigationController = navigationController
+            navigationController.delegate = self
+        }
+    }
+
+    func navigationController(
+        _ navigationController: UINavigationController,
+        willShow viewController: UIViewController,
+        animated: Bool
+    ) {
+        let isShowingRoot = navigationController.viewControllers.first === viewController
+        TabBarAppearance.setHidden(!isShowingRoot, for: navigationController, animated: animated)
     }
 }
 
@@ -2983,13 +3031,20 @@ private final class TabBarVisibilityController: UIViewController {
         guard lastHiddenState != hidden else { return }
         lastHiddenState = hidden
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tabBar = self.tabBarController?.tabBar else { return }
-            let duration = animated ? 0.24 : 0
+        TabBarAppearance.setHidden(hidden, for: self, animated: animated)
+    }
+}
+
+private enum TabBarAppearance {
+    static func setHidden(_ hidden: Bool, for controller: UIViewController, animated: Bool) {
+        DispatchQueue.main.async {
+            guard let tabBar = controller.tabBarController?.tabBar else { return }
+            let duration = animated ? 0.18 : 0
             tabBar.transform = .identity
 
             if hidden {
                 tabBar.isHidden = false
+                tabBar.isUserInteractionEnabled = false
                 UIView.animate(
                     withDuration: duration,
                     delay: 0,
@@ -2997,13 +3052,14 @@ private final class TabBarVisibilityController: UIViewController {
                 ) {
                     tabBar.alpha = 0
                 } completion: { finished in
-                    if finished, self.lastHiddenState == true {
+                    if finished && tabBar.alpha == 0 {
                         tabBar.isHidden = true
                         tabBar.transform = .identity
                     }
                 }
             } else {
                 tabBar.isHidden = false
+                tabBar.isUserInteractionEnabled = true
                 UIView.animate(
                     withDuration: duration,
                     delay: 0,
