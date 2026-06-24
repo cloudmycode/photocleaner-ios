@@ -1216,6 +1216,21 @@ struct AssetSwipeCleanView: View {
         sourceAssets.first { !excludedIDs.contains($0.localIdentifier) }
     }
 
+    private var expectedCount: Int {
+        switch category.kind {
+        case .screenshot:
+            return library.screenshotCount
+        case .video:
+            return library.videoCount
+        case .largeVideo:
+            return library.largeVideoCount
+        case .recording:
+            return library.screenRecordingCount
+        default:
+            return category.count
+        }
+    }
+
     var body: some View {
         Group {
             if let asset = currentAsset {
@@ -1237,6 +1252,14 @@ struct AssetSwipeCleanView: View {
                         actionBar(asset)
                     }
                 }
+            } else if sourceAssets.isEmpty && expectedCount > 0 {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("library.reading")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
                     ContentUnavailableView(
@@ -1254,6 +1277,9 @@ struct AssetSwipeCleanView: View {
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
         .background(Color.cleanerBackground)
+        .onAppear {
+            library.restoreMediaAssetsIfNeeded()
+        }
         .assetPreview($previewAsset)
         .alert("operation.failed", isPresented: Binding(
             get: { operationError != nil },
@@ -1498,6 +1524,10 @@ struct ScreenshotGridCleanView: View {
         library.screenshotAssets.filter { !removedIDs.contains($0.localIdentifier) }
     }
 
+    private var expectedCount: Int {
+        library.screenshotCount
+    }
+
     private var columns: [GridItem] {
         [
             GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 12)
@@ -1507,11 +1537,21 @@ struct ScreenshotGridCleanView: View {
     var body: some View {
         Group {
             if assets.isEmpty {
-                ContentUnavailableView(
-                    "cleanup.complete",
-                    systemImage: "checkmark.circle",
-                    description: Text("cleanup.complete.description")
-                )
+                if expectedCount > 0 {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("library.reading")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView(
+                        "cleanup.complete",
+                        systemImage: "checkmark.circle",
+                        description: Text("cleanup.complete.description")
+                    )
+                }
             } else {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
@@ -1578,6 +1618,9 @@ struct ScreenshotGridCleanView: View {
             let available = Set(library.screenshotAssets.map(\.localIdentifier))
             selectedIDs = selectedIDs.intersection(available)
             removedIDs = removedIDs.intersection(available)
+        }
+        .onAppear {
+            library.restoreMediaAssetsIfNeeded()
         }
     }
 

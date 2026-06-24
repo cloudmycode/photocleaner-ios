@@ -106,6 +106,18 @@ private struct MonthlyAlbumsCachePayload: Codable {
     let groups: [CachedMonthGroup]
 }
 
+private struct MediaAssetSnapshot {
+    let screenshotAssets: [PHAsset]
+    let videoAssets: [PHAsset]
+    let largeVideoAssets: [PHAsset]
+    let screenRecordingAssets: [PHAsset]
+    let mediaStorageBytes: Int64
+    let videoStorageBytes: Int64
+    let screenshotStorageBytes: Int64
+    let largeVideoStorageBytes: Int64
+    let screenRecordingStorageBytes: Int64
+}
+
 @MainActor
 final class PhotoLibraryService: NSObject, ObservableObject {
     enum ScanState: Equatable {
@@ -167,6 +179,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private var hasRequestedStartupScan = false
     private var isRestoringCachedDuplicates = false
     private var isRestoringCachedBursts = false
+    private var isRestoringMediaAssets = false
 
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -584,6 +597,49 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             _ = await restoreBurstGroupsFromCache(candidates: candidates)
             isRestoringCachedBursts = false
         }
+    }
+
+    func restoreMediaAssetsIfNeeded() {
+        guard hasCompletedInitialAnalysis,
+              !isRestoringMediaAssets,
+              shouldRestoreMediaAssets else {
+            return
+        }
+        isRestoringMediaAssets = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            let snapshot = await Task.detached(priority: .utility) {
+                Self.makeMediaAssetSnapshot()
+            }.value
+            guard !Task.isCancelled else {
+                isRestoringMediaAssets = false
+                return
+            }
+
+            screenshotAssets = snapshot.screenshotAssets
+            screenshotCount = snapshot.screenshotAssets.count
+            videoAssets = snapshot.videoAssets
+            videoCount = snapshot.videoAssets.count
+            largeVideoAssets = snapshot.largeVideoAssets
+            largeVideoCount = snapshot.largeVideoAssets.count
+            screenRecordingAssets = snapshot.screenRecordingAssets
+            screenRecordingCount = snapshot.screenRecordingAssets.count
+            videoStorageBytes = snapshot.videoStorageBytes
+            screenshotStorageBytes = snapshot.screenshotStorageBytes
+            largeVideoStorageBytes = snapshot.largeVideoStorageBytes
+            screenRecordingStorageBytes = snapshot.screenRecordingStorageBytes
+            mediaStorageBytes = snapshot.mediaStorageBytes
+            persistHomeSummary()
+            isRestoringMediaAssets = false
+        }
+    }
+
+    private var shouldRestoreMediaAssets: Bool {
+        (screenshotAssets.isEmpty && screenshotCount > 0) ||
+            (videoAssets.isEmpty && videoCount > 0) ||
+            (largeVideoAssets.isEmpty && largeVideoCount > 0) ||
+            (screenRecordingAssets.isEmpty && screenRecordingCount > 0)
     }
 
     nonisolated func storageBytes(for asset: PHAsset) -> Int64 {
@@ -1154,6 +1210,52 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             initialBurstCandidateStorageBytes: burstCandidateStorageBytes,
             emptyAlbumCount: emptyAlbums.count,
             emptyAlbums: emptyAlbums
+        )
+    }
+
+    nonisolated private static func makeMediaAssetSnapshot() -> MediaAssetSnapshot {
+        let imageAssets = fetchImageAssets()
+        let videos = fetchVideoAssets()
+        let imageStorageByID = storageMap(for: imageAssets)
+        let videoStorageByID = storageMap(for: videos)
+        let screenshotAssets = Array(
+            imageAssets
+                .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
+                .reversed()
+        )
+        let videoAssets = Array(videos.reversed())
+        let largeVideoAssets = Array(
+            videos
+                .filter { $0.duration >= 60 }
+                .reversed()
+        )
+        let screenRecordingAssets = Array(
+            videos
+                .filter { $0.mediaSubtypes.contains(.videoScreenRecording) }
+                .reversed()
+        )
+        let imageStorageBytes = imageStorageByID.values.reduce(Int64(0), +)
+        let videoStorageBytes = videoStorageByID.values.reduce(Int64(0), +)
+
+        return MediaAssetSnapshot(
+            screenshotAssets: screenshotAssets,
+            videoAssets: videoAssets,
+            largeVideoAssets: largeVideoAssets,
+            screenRecordingAssets: screenRecordingAssets,
+            mediaStorageBytes: imageStorageBytes + videoStorageBytes,
+            videoStorageBytes: videoStorageBytes,
+            screenshotStorageBytes: storageBytes(
+                for: screenshotAssets,
+                storageByID: imageStorageByID
+            ),
+            largeVideoStorageBytes: storageBytes(
+                for: largeVideoAssets,
+                storageByID: videoStorageByID
+            ),
+            screenRecordingStorageBytes: storageBytes(
+                for: screenRecordingAssets,
+                storageByID: videoStorageByID
+            )
         )
     }
 
