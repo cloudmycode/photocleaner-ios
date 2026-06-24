@@ -31,6 +31,10 @@
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Smart Cleaner uses speech recognition to turn your voice into photo search text.</string>
 	<key>PhotoQueryParseEndpoint</key>
+	<string>https://api.openai.com/v1/chat/completions</string>
+	<key>PhotoQueryParseModel</key>
+	<string>gpt-4o-mini</string>
+	<key>PhotoQueryParseAPIKey</key>
 	<string></string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

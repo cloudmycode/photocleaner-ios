@@ -3375,24 +3375,124 @@ private struct CloudPhotoSearchParser {
               !endpoint.isEmpty else {
             throw URLError(.notConnectedToInternet)
         }
+        let apiKey = Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseAPIKey") as? String
+        let model = (Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseModel") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = [
-            "query": text,
-            "locale": Locale.current.identifier,
-            "timezone": TimeZone.current.identifier
-        ]
+        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        let body = OpenAIChatRequest(
+            model: model?.isEmpty == false ? model! : "gpt-4o-mini",
+            messages: [
+                .init(role: "system", content: Self.systemPrompt),
+                .init(
+                    role: "user",
+                    content: """
+                    Query: \(trimmedText)
+                    Locale: \(Locale.current.identifier)
+                    Timezone: \(TimeZone.current.identifier)
+                    """
+                )
+            ],
+            temperature: 0,
+            responseFormat: .init(type: "json_object")
+        )
         request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-        var query = try JSONDecoder().decode(PhotoSearchQuery.self, from: data)
+        let chatResponse = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
+        guard let content = chatResponse.choices.first?.message.content,
+              let queryData = Self.jsonData(from: content) else {
+            throw URLError(.cannotParseResponse)
+        }
+        var query = try JSONDecoder().decode(PhotoSearchQuery.self, from: queryData)
         query.rawText = text
         return query
+    }
+
+    private static let systemPrompt = """
+    You parse photo search requests for an iOS photo cleaner app.
+    Return only valid JSON, no Markdown.
+    Schema:
+    {
+      "summary": "short user-facing summary",
+      "mediaTypes": ["image" | "video"],
+      "assetTypes": ["screenshot" | "live" | "screen_recording"],
+      "dateRange": {"start": "yyyy-MM-dd", "end": "yyyy-MM-dd"},
+      "locations": ["place names"],
+      "locationBounds": [{"name":"", "minLatitude":0, "maxLatitude":0, "minLongitude":0, "maxLongitude":0}],
+      "minSizeMB": 0,
+      "maxSizeMB": 0,
+      "hasLocation": true,
+      "keywords": [],
+      "visualTags": ["person", "red_clothing", "blue_clothing", "white_clothing", "black_clothing", "yellow_clothing", "green_clothing", "car", "food", "beach", "dog", "cat", "pet", "building", "sky", "flower", "document"],
+      "ocrKeywords": [],
+      "ocrRegexes": [],
+      "sensitiveTypes": ["bank_card", "id_card", "passport", "document"],
+      "requiresOCR": false
+    }
+    Omit unknown fields. Photos never leave the device; use OCR fields for text on images.
+    For card tail-number queries, put a suitable regex in ocrRegexes and set requiresOCR true.
+    For people clothing queries, use person plus color_clothing. Do not infer gender as a required tag.
+    """
+
+    private static func jsonData(from content: String) -> Data? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8),
+           (try? JSONSerialization.jsonObject(with: data)) != nil {
+            return data
+        }
+        guard let start = trimmed.firstIndex(of: "{"),
+              let end = trimmed.lastIndex(of: "}"),
+              start <= end else {
+            return nil
+        }
+        let json = String(trimmed[start...end])
+        return json.data(using: .utf8)
+    }
+
+    private struct OpenAIChatRequest: Encodable {
+        let model: String
+        let messages: [Message]
+        let temperature: Double
+        let responseFormat: ResponseFormat
+
+        enum CodingKeys: String, CodingKey {
+            case model
+            case messages
+            case temperature
+            case responseFormat = "response_format"
+        }
+
+        struct Message: Encodable {
+            let role: String
+            let content: String
+        }
+
+        struct ResponseFormat: Encodable {
+            let type: String
+        }
+    }
+
+    private struct OpenAIChatResponse: Decodable {
+        let choices: [Choice]
+
+        struct Choice: Decodable {
+            let message: Message
+        }
+
+        struct Message: Decodable {
+            let content: String
+        }
     }
 }
 
