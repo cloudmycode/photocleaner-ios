@@ -184,6 +184,7 @@
 "smart.search.has.location" = "位置情報あり";
 "smart.search.no.location" = "位置情報なし";
 "smart.search.ocr.keyword.format" = "文字：%@";
+"smart.search.ocr.regex.format" = "正規表現：%@";
 "smart.search.sensitive.bank_card" = "銀行カード";
 "smart.search.sensitive.id_card" = "身分証明書";
 "smart.search.sensitive.passport" = "パスポート";

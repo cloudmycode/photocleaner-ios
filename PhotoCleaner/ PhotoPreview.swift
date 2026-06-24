@@ -3099,6 +3099,7 @@ private struct PhotoSearchQuery: Decodable {
     var hasLocation: Bool?
     var keywords: [String]?
     var ocrKeywords: [String]?
+    var ocrRegexes: [String]?
     var sensitiveTypes: [String]?
     var requiresOCR: Bool?
     var rawText: String?
@@ -3136,6 +3137,7 @@ private struct PhotoSearchQuery: Decodable {
         }
         chips.append(contentsOf: (sensitiveTypes ?? []).map(Self.sensitiveTypeLabel))
         chips.append(contentsOf: (ocrKeywords ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.keyword.format"), $0) })
+        chips.append(contentsOf: (ocrRegexes ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.regex.format"), $0) })
         chips.append(contentsOf: (keywords ?? []).map { "#\($0)" })
         return chips.isEmpty ? [String(localized: "smart.search.understood.default")] : chips
     }
@@ -3290,12 +3292,16 @@ private enum PhotoSearchEngine {
     private static func needsOCR(_ query: PhotoSearchQuery) -> Bool {
         if query.requiresOCR == true { return true }
         if !(query.ocrKeywords ?? []).isEmpty { return true }
+        if !(query.ocrRegexes ?? []).isEmpty { return true }
         if !(query.sensitiveTypes ?? []).isEmpty { return true }
         return inferredSensitiveTypes(from: query.rawText).isEmpty == false
     }
 
     private static func matchesOCRText(_ text: String, query: PhotoSearchQuery) -> Bool {
         let normalizedText = normalize(text)
+        if matchesOCRRegexes(query.ocrRegexes ?? [], text: text, normalizedText: normalizedText) {
+            return true
+        }
         let sensitiveTypes = Set((query.sensitiveTypes ?? []) + inferredSensitiveTypes(from: query.rawText))
         if sensitiveTypes.contains(where: { matchesSensitiveType($0, normalizedText: normalizedText) }) {
             return true
@@ -3306,6 +3312,24 @@ private enum PhotoSearchEngine {
             return query.requiresOCR == true && !normalizedText.isEmpty
         }
         return keywords.contains { normalizedText.contains(normalize($0)) }
+    }
+
+    private static func matchesOCRRegexes(
+        _ regexes: [String],
+        text: String,
+        normalizedText: String
+    ) -> Bool {
+        let compactText = text
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        return regexes.contains { pattern in
+            guard !pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
+            return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil ||
+                compactText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil ||
+                normalizedText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
 
     private static func matchesSensitiveType(_ type: String, normalizedText: String) -> Bool {

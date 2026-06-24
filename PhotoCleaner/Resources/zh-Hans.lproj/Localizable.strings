@@ -184,6 +184,7 @@
 "smart.search.has.location" = "有位置";
 "smart.search.no.location" = "无位置";
 "smart.search.ocr.keyword.format" = "文字：%@";
+"smart.search.ocr.regex.format" = "正则：%@";
 "smart.search.sensitive.bank_card" = "银行卡";
 "smart.search.sensitive.id_card" = "证件/身份证";
 "smart.search.sensitive.passport" = "护照";
