@@ -312,6 +312,8 @@ struct QuickCleanView: View {
             SimilarCleanView(mode: .duplicate)
         } else if item.kind == .burst {
             SimilarCleanView(mode: .burst)
+        } else if item.kind == .screenshot {
+            ScreenshotGridCleanView(category: item)
         } else {
             AssetSwipeCleanView(category: item)
         }
@@ -1453,6 +1455,217 @@ struct AssetSwipeCleanView: View {
                 operationError = error.localizedDescription
             }
         }
+    }
+}
+
+struct ScreenshotGridCleanView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let category: CleanerCategory
+
+    @State private var selectedIDs = Set<String>()
+    @State private var removedIDs = Set<String>()
+    @State private var showDeleteConfirmation = false
+    @State private var operationError: String?
+    @State private var previewAsset: IdentifiablePHAsset?
+
+    private var assets: [PHAsset] {
+        library.screenshotAssets.filter { !removedIDs.contains($0.localIdentifier) }
+    }
+
+    private var columns: [GridItem] {
+        [
+            GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 12)
+        ]
+    }
+
+    var body: some View {
+        Group {
+            if assets.isEmpty {
+                ContentUnavailableView(
+                    "cleanup.complete",
+                    systemImage: "checkmark.circle",
+                    description: Text("cleanup.complete.description")
+                )
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(assets, id: \.localIdentifier) { asset in
+                            ScreenshotGridItem(
+                                asset: asset,
+                                isSelected: selectedIDs.contains(asset.localIdentifier),
+                                storageText: formattedStorage(library.storageBytes(for: asset)),
+                                onToggle: { toggleSelection(asset) },
+                                onPreview: {
+                                    previewAsset = IdentifiablePHAsset(asset: asset)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, selectedIDs.isEmpty ? 24 : 96)
+                }
+            }
+        }
+        .navigationTitle(category.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .animatedTabBarHidden()
+        .background(Color.cleanerBackground)
+        .overlay(alignment: .bottomTrailing) {
+            if !selectedIDs.isEmpty {
+                selectedDeleteButton
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 18)
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: selectedIDs)
+        .assetPreview(
+            $previewAsset,
+            isSelected: { selectedIDs.contains($0) },
+            onToggle: { item in toggleSelection(item.asset) }
+        )
+        .confirmationDialog(
+            "month.delete.confirm.title",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("month.delete.confirm.action", role: .destructive) {
+                deleteSelected()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(String.localizedStringWithFormat(
+                String(localized: "month.delete.confirm.message"),
+                selectedIDs.count
+            ))
+        }
+        .alert("operation.failed", isPresented: Binding(
+            get: { operationError != nil },
+            set: { if !$0 { operationError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(operationError ?? "")
+        }
+        .onChange(of: library.screenshotAssets.map(\.localIdentifier)) {
+            let available = Set(library.screenshotAssets.map(\.localIdentifier))
+            selectedIDs = selectedIDs.intersection(available)
+            removedIDs = removedIDs.intersection(available)
+        }
+    }
+
+    private var selectedDeleteButton: some View {
+        Button {
+            showDeleteConfirmation = true
+        } label: {
+            HStack(spacing: 10) {
+                Text(String(selectedIDs.count))
+                    .font(.subheadline.bold())
+                    .monospacedDigit()
+                Image(systemName: "trash.fill")
+                    .font(.headline)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(Color.red, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
+        }
+        .accessibilityLabel(Text("month.delete.marked"))
+    }
+
+    private func toggleSelection(_ asset: PHAsset) {
+        let id = asset.localIdentifier
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+        } else {
+            selectedIDs.insert(id)
+        }
+    }
+
+    private func deleteSelected() {
+        let identifiers = selectedIDs
+        Task {
+            do {
+                try await library.deleteAssets(with: identifiers)
+                removedIDs.formUnion(identifiers)
+                selectedIDs.subtract(identifiers)
+            } catch {
+                operationError = error.localizedDescription
+            }
+        }
+    }
+}
+
+private struct ScreenshotGridItem: View {
+    let asset: PHAsset
+    let isSelected: Bool
+    let storageText: String
+    let onToggle: () -> Void
+    let onPreview: () -> Void
+
+    var body: some View {
+        ZStack {
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 360, height: 520)
+            )
+            .aspectRatio(0.72, contentMode: .fill)
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+            VStack {
+                HStack {
+                    Spacer()
+                    selectionButton
+                }
+                Spacer()
+                HStack {
+                    storageBadge
+                    Spacer()
+                }
+            }
+            .padding(8)
+        }
+        .background(Color.cleanerCard, in: RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(
+                    isSelected ? Color.cleanerBlue : Color.cleanerBorder,
+                    lineWidth: isSelected ? 2 : 0.5
+                )
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture(perform: onPreview)
+    }
+
+    private var storageBadge: some View {
+        Text(storageText)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(.black.opacity(0.52), in: Capsule())
+    }
+
+    private var selectionButton: some View {
+        Button(action: onToggle) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.title3.weight(.semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(
+                    isSelected ? .white : .white.opacity(0.92),
+                    isSelected ? Color.cleanerBlue : .black.opacity(0.35)
+                )
+                .frame(width: 34, height: 34)
+                .background(.black.opacity(isSelected ? 0 : 0.25), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isSelected ? "unselect" : "select"))
     }
 }
 
