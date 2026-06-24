@@ -2527,11 +2527,21 @@ struct EmptyAlbumCleanView: View {
     var body: some View {
         Group {
             if library.emptyAlbums.isEmpty {
-                ContentUnavailableView(
-                    "No Empty Albums",
-                    systemImage: "folder",
-                    description: Text("All albums contain at least one item.")
-                )
+                if library.emptyAlbumCount > 0 {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("library.reading")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView(
+                        "No Empty Albums",
+                        systemImage: "folder",
+                        description: Text("All albums contain at least one item.")
+                    )
+                }
             } else {
                 List {
                     ForEach(library.emptyAlbums, id: \.id) { album in
@@ -2565,6 +2575,9 @@ struct EmptyAlbumCleanView: View {
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
         .background(Color.cleanerBackground)
+        .onAppear {
+            library.restoreEmptyAlbumsIfNeeded()
+        }
         .confirmationDialog(
             "Delete Album?",
             isPresented: $showDeleteConfirmation,

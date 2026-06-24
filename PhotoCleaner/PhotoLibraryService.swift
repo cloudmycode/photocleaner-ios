@@ -180,6 +180,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private var isRestoringCachedDuplicates = false
     private var isRestoringCachedBursts = false
     private var isRestoringMediaAssets = false
+    private var isRestoringEmptyAlbums = false
 
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -659,6 +660,32 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             (screenRecordingAssets.isEmpty && screenRecordingCount > 0)
     }
 
+    func restoreEmptyAlbumsIfNeeded() {
+        guard hasCompletedInitialAnalysis,
+              emptyAlbums.isEmpty,
+              emptyAlbumCount > 0,
+              !isRestoringEmptyAlbums else {
+            return
+        }
+        isRestoringEmptyAlbums = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            let albums = await Task.detached(priority: .userInitiated) {
+                Self.fetchEmptyAlbums()
+            }.value
+            guard !Task.isCancelled else {
+                isRestoringEmptyAlbums = false
+                return
+            }
+
+            emptyAlbums = albums
+            emptyAlbumCount = albums.count
+            persistHomeSummary()
+            isRestoringEmptyAlbums = false
+        }
+    }
+
     nonisolated func storageBytes(for asset: PHAsset) -> Int64 {
         Self.assetStorageBytes(asset)
     }
@@ -672,6 +699,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetCollectionChangeRequest.deleteAssetCollections(collections)
         }
+        emptyAlbums.removeAll { $0.id == localIdentifier }
+        emptyAlbumCount = emptyAlbums.count
+        persistHomeSummary()
     }
 
     func deleteAssets(with identifiers: Set<String>) async throws {
