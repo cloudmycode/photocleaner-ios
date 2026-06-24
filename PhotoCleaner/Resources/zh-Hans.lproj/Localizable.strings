@@ -196,3 +196,12 @@
 "smart.search.visual.black_clothing" = "黑色衣服";
 "smart.search.visual.yellow_clothing" = "黄色衣服";
 "smart.search.visual.green_clothing" = "绿色衣服";
+"smart.search.visual.car" = "车辆";
+"smart.search.visual.food" = "食物";
+"smart.search.visual.beach" = "海边";
+"smart.search.visual.dog" = "狗";
+"smart.search.visual.cat" = "猫";
+"smart.search.visual.pet" = "宠物";
+"smart.search.visual.building" = "建筑";
+"smart.search.visual.sky" = "天空";
+"smart.search.visual.flower" = "花草";

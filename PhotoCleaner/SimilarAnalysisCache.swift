@@ -27,7 +27,7 @@ actor PhotoSearchIndexStore {
 
     static let shared = PhotoSearchIndexStore()
 
-    private let algorithmVersion = 2
+    private let algorithmVersion = 3
     private let fileURL: URL
     private var entries: [String: PhotoSearchIndexEntry]?
 

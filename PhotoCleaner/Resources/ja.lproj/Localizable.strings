@@ -196,3 +196,12 @@
 "smart.search.visual.black_clothing" = "黒い服";
 "smart.search.visual.yellow_clothing" = "黄色い服";
 "smart.search.visual.green_clothing" = "緑の服";
+"smart.search.visual.car" = "車";
+"smart.search.visual.food" = "食べ物";
+"smart.search.visual.beach" = "海辺";
+"smart.search.visual.dog" = "犬";
+"smart.search.visual.cat" = "猫";
+"smart.search.visual.pet" = "ペット";
+"smart.search.visual.building" = "建物";
+"smart.search.visual.sky" = "空";
+"smart.search.visual.flower" = "花/植物";

@@ -196,3 +196,12 @@
 "smart.search.visual.black_clothing" = "Black clothing";
 "smart.search.visual.yellow_clothing" = "Yellow clothing";
 "smart.search.visual.green_clothing" = "Green clothing";
+"smart.search.visual.car" = "Cars";
+"smart.search.visual.food" = "Food";
+"smart.search.visual.beach" = "Beach";
+"smart.search.visual.dog" = "Dogs";
+"smart.search.visual.cat" = "Cats";
+"smart.search.visual.pet" = "Pets";
+"smart.search.visual.building" = "Buildings";
+"smart.search.visual.sky" = "Sky";
+"smart.search.visual.flower" = "Flowers/plants";

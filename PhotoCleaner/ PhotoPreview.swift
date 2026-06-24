@@ -3272,6 +3272,24 @@ private struct PhotoSearchQuery: Decodable {
             return String(localized: "smart.search.visual.yellow_clothing")
         case "green_clothing":
             return String(localized: "smart.search.visual.green_clothing")
+        case "car", "vehicle":
+            return String(localized: "smart.search.visual.car")
+        case "food":
+            return String(localized: "smart.search.visual.food")
+        case "beach", "sea", "ocean":
+            return String(localized: "smart.search.visual.beach")
+        case "dog":
+            return String(localized: "smart.search.visual.dog")
+        case "cat":
+            return String(localized: "smart.search.visual.cat")
+        case "pet", "animal":
+            return String(localized: "smart.search.visual.pet")
+        case "building", "architecture":
+            return String(localized: "smart.search.visual.building")
+        case "sky":
+            return String(localized: "smart.search.visual.sky")
+        case "flower", "plant":
+            return String(localized: "smart.search.visual.flower")
         default:
             return "#\(tag)"
         }
@@ -3294,6 +3312,9 @@ private struct PhotoSearchQuery: Decodable {
             normalized.contains("girl") ||
             normalized.contains("boy") {
             tags.append("person")
+        }
+        for item in visualKeywordMap where item.keywords.contains(where: { normalized.contains($0) }) {
+            tags.append(item.tag)
         }
         for item in [
             ("红", "red"),
@@ -3329,6 +3350,21 @@ private struct PhotoSearchQuery: Decodable {
             }
         }
         return Array(Set(tags))
+    }
+
+    private static var visualKeywordMap: [(tag: String, keywords: [String])] {
+        [
+            ("car", ["车", "汽车", "车辆", "轿车", "停车", "car", "vehicle", "auto"]),
+            ("food", ["食物", "美食", "吃的", "饭", "菜", "餐", "food", "meal", "dish"]),
+            ("beach", ["海边", "海滩", "沙滩", "大海", "海", "beach", "sea", "ocean"]),
+            ("dog", ["狗", "小狗", "dog"]),
+            ("cat", ["猫", "小猫", "cat"]),
+            ("pet", ["宠物", "pet", "animal"]),
+            ("building", ["建筑", "楼", "房子", "大楼", "building", "architecture", "house"]),
+            ("sky", ["天空", "蓝天", "sky"]),
+            ("flower", ["花", "植物", "flower", "plant"]),
+            ("document", ["文档", "合同", "票据", "证件", "document", "receipt", "invoice"])
+        ]
     }
 }
 
@@ -3485,18 +3521,58 @@ private enum PhotoSearchEngine {
         _ requestedTags: [String],
         entry: PhotoSearchIndexEntry?
     ) -> Bool {
-        let indexedTags = Set(entry?.visualTags ?? [])
+        let indexedTags = Set((entry?.visualTags ?? []).map(normalizeVisualTag))
         guard !indexedTags.isEmpty else { return false }
         return requestedTags.allSatisfy { requestedTag in
-            let normalized = requestedTag.lowercased()
+            let normalized = normalizeVisualTag(requestedTag)
             switch normalized {
             case "person", "people", "human":
                 return indexedTags.contains("person") ||
                     indexedTags.contains("people") ||
                     indexedTags.contains("human")
             default:
-                return indexedTags.contains(normalized)
+                return indexedTags.contains(normalized) ||
+                    visualTagSynonyms(for: normalized).contains(where: indexedTags.contains) ||
+                    indexedTags.contains { indexedTag in
+                        indexedTag.contains(normalized) || normalized.contains(indexedTag)
+                    }
             }
+        }
+    }
+
+    private static func normalizeVisualTag(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .joined(separator: "_")
+            .lowercased()
+    }
+
+    private static func visualTagSynonyms(for tag: String) -> Set<String> {
+        switch tag {
+        case "car", "vehicle", "automobile":
+            return ["car", "vehicle", "automobile", "motor_vehicle", "land_vehicle"]
+        case "food", "meal", "dish":
+            return ["food", "meal", "dish", "cuisine", "plate"]
+        case "beach", "sea", "ocean":
+            return ["beach", "sea", "ocean", "coast", "shore", "seashore"]
+        case "dog":
+            return ["dog", "canine"]
+        case "cat":
+            return ["cat", "feline"]
+        case "pet", "animal":
+            return ["pet", "animal", "dog", "cat", "canine", "feline"]
+        case "building", "architecture":
+            return ["building", "architecture", "house", "skyscraper"]
+        case "flower", "plant":
+            return ["flower", "plant", "flora"]
+        case "document":
+            return ["document", "paper", "receipt", "invoice"]
+        default:
+            return [tag]
         }
     }
 

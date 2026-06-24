@@ -1096,6 +1096,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     nonisolated private static func searchVisualTags(for image: CGImage) -> [String] {
         var tags = Set<String>()
+        tags.formUnion(classificationTags(for: image))
+
         let humanRects = detectedHumanRects(in: image)
         if !humanRects.isEmpty {
             tags.insert("person")
@@ -1123,6 +1125,36 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
 
         return tags.sorted()
+    }
+
+    nonisolated private static func classificationTags(for image: CGImage) -> [String] {
+        let request = VNClassifyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: image, orientation: .up)
+        do {
+            try handler.perform([request])
+            return request.results?
+                .filter { $0.confidence >= 0.25 }
+                .prefix(8)
+                .flatMap { observation in
+                    observation.identifier
+                        .split(separator: ",")
+                        .map { normalizedClassificationTag(String($0)) }
+                        .filter { !$0.isEmpty }
+                } ?? []
+        } catch {
+            return []
+        }
+    }
+
+    nonisolated private static func normalizedClassificationTag(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .joined(separator: "_")
+            .lowercased()
     }
 
     nonisolated private static func detectedHumanRects(in image: CGImage) -> [CGRect] {
