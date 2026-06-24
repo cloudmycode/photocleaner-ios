@@ -1474,6 +1474,13 @@ private final class TabBarVisibilityController: UIViewController {
         applyTabBarHidden(pendingHiddenState, animated: animated)
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if pendingHiddenState {
+            applyTabBarHidden(false, animated: animated)
+        }
+    }
+
     func setTabBarHidden(_ hidden: Bool, animated: Bool) {
         pendingHiddenState = hidden
         applyTabBarHidden(hidden, animated: animated)
