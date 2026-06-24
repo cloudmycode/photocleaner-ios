@@ -145,3 +145,9 @@
 "settings.clear.cache.confirm.title" = "Clear Analysis Cache?";
 "settings.clear.cache.confirm.message" = "Duplicate photos and burst recommendations will be analyzed again the next time the app opens.";
 "settings.clear.cache.confirm.action" = "Clear Cache";
+"ai.tag.best.keep" = "AI pick to keep";
+"ai.tag.favorite.keep" = "Favorite, keep";
+"ai.tag.lower.quality" = "Lower quality";
+"ai.tag.possible.blur" = "May be blurry";
+"ai.tag.high.resolution" = "High resolution";
+"ai.tag.similar.cleanable" = "Similar, cleanable";

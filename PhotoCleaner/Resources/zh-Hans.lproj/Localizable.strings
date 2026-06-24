@@ -145,3 +145,9 @@
 "settings.clear.cache.confirm.title" = "清理分析缓存？";
 "settings.clear.cache.confirm.message" = "下次打开应用时将重新分析重复照片和连拍推荐。";
 "settings.clear.cache.confirm.action" = "清理缓存";
+"ai.tag.best.keep" = "AI 推荐保留";
+"ai.tag.favorite.keep" = "收藏照片，建议保留";
+"ai.tag.lower.quality" = "质量较低";
+"ai.tag.possible.blur" = "可能偏模糊";
+"ai.tag.high.resolution" = "高像素";
+"ai.tag.similar.cleanable" = "相似可清理";

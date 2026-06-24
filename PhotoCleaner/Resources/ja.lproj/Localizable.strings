@@ -145,3 +145,9 @@
 "settings.clear.cache.confirm.title" = "解析キャッシュを削除しますか？";
 "settings.clear.cache.confirm.message" = "次回起動時に重複写真と連写のおすすめを再解析します。";
 "settings.clear.cache.confirm.action" = "キャッシュを削除";
+"ai.tag.best.keep" = "AI おすすめ";
+"ai.tag.favorite.keep" = "お気に入り、保持";
+"ai.tag.lower.quality" = "品質が低め";
+"ai.tag.possible.blur" = "ぼやけの可能性";
+"ai.tag.high.resolution" = "高解像度";
+"ai.tag.similar.cleanable" = "類似、整理候補";

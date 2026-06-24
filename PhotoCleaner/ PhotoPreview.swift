@@ -1137,6 +1137,7 @@ struct SimilarCleanView: View {
                         let group = groups[index]
                         SimilarGroup(
                             title: groupTitle(group, index: index),
+                            mode: mode,
                             group: group,
                             selectedIDs: $selectedIDs,
                             previewPhoto: $previewPhoto
@@ -2967,6 +2968,7 @@ private struct CleanerToast: View {
 
 private struct SimilarGroup: View {
     let title: String
+    let mode: PhotoGroupCleanMode
     let group: SimilarAssetGroup
     @Binding var selectedIDs: Set<String>
     @Binding var previewPhoto: IdentifiablePHAsset?
@@ -2995,7 +2997,8 @@ private struct SimilarGroup: View {
                         SimilarPhotoCard(
                             photo: photo,
                             selected: selectedIDs.contains(photo.id),
-                            storageText: formattedStorage(library.storageBytes(for: photo.asset))
+                            storageText: formattedStorage(library.storageBytes(for: photo.asset)),
+                            insight: insight(for: photo)
                         ) {
                             previewPhoto = IdentifiablePHAsset(asset: photo.asset)
                         } toggle: {
@@ -3019,17 +3022,48 @@ private struct SimilarGroup: View {
     private var allCandidatesSelected: Bool {
         !candidateIDs.isEmpty && candidateIDs.isSubset(of: selectedIDs)
     }
+
+    private func insight(for photo: SimilarAsset) -> BurstPhotoInsight? {
+        guard mode == .burst else { return nil }
+        let bestScore = group.assets.map(\.qualityScore).max() ?? photo.qualityScore
+        let scoreGap = bestScore - photo.qualityScore
+        let megapixels = Double(photo.asset.pixelWidth * photo.asset.pixelHeight) / 1_000_000
+
+        if photo.isBest {
+            if photo.asset.isFavorite {
+                return BurstPhotoInsight(text: String(localized: "ai.tag.favorite.keep"), tint: .yellow)
+            }
+            return BurstPhotoInsight(text: String(localized: "ai.tag.best.keep"), tint: .cleanerGreen)
+        }
+        if scoreGap > 0.18 {
+            return BurstPhotoInsight(text: String(localized: "ai.tag.lower.quality"), tint: .orange)
+        }
+        if photo.qualityScore < 0.34 {
+            return BurstPhotoInsight(text: String(localized: "ai.tag.possible.blur"), tint: .orange)
+        }
+        if megapixels >= 12 {
+            return BurstPhotoInsight(text: String(localized: "ai.tag.high.resolution"), tint: .cleanerBlue)
+        }
+        return BurstPhotoInsight(text: String(localized: "ai.tag.similar.cleanable"), tint: .secondary)
+    }
+}
+
+private struct BurstPhotoInsight {
+    let text: String
+    let tint: Color
 }
 
 private struct SimilarPhotoCard: View {
     let photo: SimilarAsset
     let selected: Bool
     let storageText: String
+    let insight: BurstPhotoInsight?
     let preview: () -> Void
     let toggle: () -> Void
 
     var body: some View {
         let cardWidth: CGFloat = photo.asset.pixelWidth > photo.asset.pixelHeight ? 142 : 108
+        let cardHeight: CGFloat = insight == nil ? 146 : 178
 
         ZStack(alignment: .topTrailing) {
             Button(action: preview) {
@@ -3041,6 +3075,7 @@ private struct SimilarPhotoCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .frame(width: cardWidth, height: 146, alignment: .top)
 
             if photo.isBest {
                 Image(systemName: "star.fill")
@@ -3080,9 +3115,21 @@ private struct SimilarPhotoCard: View {
                 Spacer(minLength: 0)
             }
             .padding(7)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .frame(width: cardWidth, height: 146, alignment: .bottomLeading)
+
+            if let insight {
+                Text(insight.text)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(insight.tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .padding(.horizontal, 7)
+                    .frame(width: cardWidth, height: 24, alignment: .leading)
+                    .background(insight.tint.opacity(0.12), in: Capsule())
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+            }
         }
-        .frame(width: cardWidth, height: 146)
+        .frame(width: cardWidth, height: cardHeight)
     }
 }
 
