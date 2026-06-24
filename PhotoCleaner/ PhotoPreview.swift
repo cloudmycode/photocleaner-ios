@@ -313,7 +313,7 @@ struct QuickCleanView: View {
         } else if item.kind == .burst {
             SimilarCleanView(mode: .burst)
         } else if item.kind == .screenshot {
-            ScreenshotGridCleanView(category: item)
+            ScreenshotListCleanView(category: item)
         } else {
             AssetSwipeCleanView(category: item)
         }
@@ -1510,7 +1510,7 @@ struct AssetSwipeCleanView: View {
     }
 }
 
-struct ScreenshotGridCleanView: View {
+struct ScreenshotListCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     let category: CleanerCategory
 
@@ -1529,9 +1529,7 @@ struct ScreenshotGridCleanView: View {
     }
 
     private var columns: [GridItem] {
-        [
-            GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 12)
-        ]
+        Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
     }
 
     var body: some View {
@@ -1554,9 +1552,9 @@ struct ScreenshotGridCleanView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: 10) {
                         ForEach(assets, id: \.localIdentifier) { asset in
-                            ScreenshotGridItem(
+                            ScreenshotListItem(
                                 asset: asset,
                                 isSelected: selectedIDs.contains(asset.localIdentifier),
                                 storageText: formattedStorage(library.storageBytes(for: asset)),
@@ -1567,9 +1565,9 @@ struct ScreenshotGridCleanView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, selectedIDs.isEmpty ? 24 : 96)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+                    .padding(.bottom, selectedIDs.isEmpty ? 24 : 104)
                 }
             }
         }
@@ -1629,7 +1627,10 @@ struct ScreenshotGridCleanView: View {
             showDeleteConfirmation = true
         } label: {
             HStack(spacing: 10) {
-                Text(String(selectedIDs.count))
+                Text(String.localizedStringWithFormat(
+                    String(localized: "month.marked.format"),
+                    selectedIDs.count
+                ))
                     .font(.subheadline.bold())
                     .monospacedDigit()
                 Image(systemName: "trash.fill")
@@ -1667,7 +1668,7 @@ struct ScreenshotGridCleanView: View {
     }
 }
 
-private struct ScreenshotGridItem: View {
+private struct ScreenshotListItem: View {
     let asset: PHAsset
     let isSelected: Bool
     let storageText: String
@@ -1675,38 +1676,35 @@ private struct ScreenshotGridItem: View {
     let onPreview: () -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             PhotoThumbnailView(
                 asset: asset,
-                targetSize: CGSize(width: 360, height: 520)
+                targetSize: CGSize(width: 300, height: 520)
             )
-            .aspectRatio(0.72, contentMode: .fill)
+            .aspectRatio(0.62, contentMode: .fill)
             .frame(maxWidth: .infinity)
             .clipped()
 
-            VStack {
-                HStack {
-                    Spacer()
-                    selectionButton
-                }
-                Spacer()
-                HStack {
-                    storageBadge
-                    Spacer()
-                }
+            selectionButton
+                .padding(6)
+
+            HStack {
+                storageBadge
+                Spacer(minLength: 0)
             }
-            .padding(8)
+            .padding(7)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
-        .background(Color.cleanerCard, in: RoundedRectangle(cornerRadius: 12))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Color.cleanerCard)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 8)
                 .stroke(
                     isSelected ? Color.cleanerBlue : Color.cleanerBorder,
                     lineWidth: isSelected ? 2 : 0.5
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture(perform: onPreview)
     }
 
