@@ -744,25 +744,49 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
         guard !assets.isEmpty else { return }
 
-        var stillImageURLs: [URL] = []
-        stillImageURLs.reserveCapacity(assets.count)
+        var stillImageURLsByID: [String: URL] = [:]
+        stillImageURLsByID.reserveCapacity(assets.count)
+        let albumIDsByAssetID = Self.userAlbumIDsByAssetID(for: assets)
         do {
             for asset in assets {
-                stillImageURLs.append(try await stillImageFileURL(for: asset))
+                stillImageURLsByID[asset.localIdentifier] = try await stillImageFileURL(for: asset)
             }
             try await PHPhotoLibrary.shared().performChanges {
-                for url in stillImageURLs {
-                    PHAssetCreationRequest.creationRequestForAssetFromImage(atFileURL: url)
+                var createdPlaceholdersByAlbumID: [String: [PHObjectPlaceholder]] = [:]
+                for asset in assets {
+                    guard let url = stillImageURLsByID[asset.localIdentifier] else { continue }
+                    let request = PHAssetCreationRequest.forAsset()
+                    let options = PHAssetResourceCreationOptions()
+                    request.addResource(with: .photo, fileURL: url, options: options)
+                    request.creationDate = asset.creationDate
+                    request.location = asset.location
+                    request.isFavorite = asset.isFavorite
+                    if let placeholder = request.placeholderForCreatedAsset {
+                        for albumID in albumIDsByAssetID[asset.localIdentifier, default: []] {
+                            createdPlaceholdersByAlbumID[albumID, default: []].append(placeholder)
+                        }
+                    }
+                }
+                for (albumID, placeholders) in createdPlaceholdersByAlbumID {
+                    let collections = PHAssetCollection.fetchAssetCollections(
+                        withLocalIdentifiers: [albumID],
+                        options: nil
+                    )
+                    guard let collection = collections.firstObject,
+                          let request = PHAssetCollectionChangeRequest(for: collection) else {
+                        continue
+                    }
+                    request.addAssets(placeholders as NSArray)
                 }
                 PHAssetChangeRequest.deleteAssets(fetchResult)
             }
         } catch {
-            for url in stillImageURLs {
+            for url in stillImageURLsByID.values {
                 try? FileManager.default.removeItem(at: url)
             }
             throw error
         }
-        for url in stillImageURLs {
+        for url in stillImageURLsByID.values {
             try? FileManager.default.removeItem(at: url)
         }
 
@@ -800,6 +824,21 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    nonisolated private static func userAlbumIDsByAssetID(for assets: [PHAsset]) -> [String: [String]] {
+        var result: [String: [String]] = [:]
+        for asset in assets {
+            let collections = PHAssetCollection.fetchAssetCollectionsContaining(
+                asset,
+                with: .album,
+                options: nil
+            )
+            collections.enumerateObjects { collection, _, _ in
+                result[asset.localIdentifier, default: []].append(collection.localIdentifier)
+            }
+        }
+        return result
     }
 
     func deleteEmptyAlbum(with localIdentifier: String) async throws {
