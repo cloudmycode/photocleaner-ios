@@ -1861,7 +1861,6 @@ private struct AssetGridItem: View {
                     isSelected ? Color.cleanerBlue : .black.opacity(0.35)
                 )
                 .frame(width: 34, height: 34)
-                .background(.black.opacity(isSelected ? 0 : 0.25), in: Circle())
                 .transaction { transaction in
                     transaction.animation = nil
                 }
@@ -2929,6 +2928,7 @@ private struct SimilarGroup: View {
     let group: SimilarAssetGroup
     @Binding var selectedIDs: Set<String>
     @Binding var previewPhoto: IdentifiablePHAsset?
+    @EnvironmentObject private var library: PhotoLibraryService
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2950,7 +2950,11 @@ private struct SimilarGroup: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(group.assets) { photo in
-                        SimilarPhotoCard(photo: photo, selected: selectedIDs.contains(photo.id)) {
+                        SimilarPhotoCard(
+                            photo: photo,
+                            selected: selectedIDs.contains(photo.id),
+                            storageText: formattedStorage(library.storageBytes(for: photo.asset))
+                        ) {
                             previewPhoto = IdentifiablePHAsset(asset: photo.asset)
                         } toggle: {
                             if selectedIDs.contains(photo.id) {
@@ -2978,6 +2982,7 @@ private struct SimilarGroup: View {
 private struct SimilarPhotoCard: View {
     let photo: SimilarAsset
     let selected: Bool
+    let storageText: String
     let preview: () -> Void
     let toggle: () -> Void
 
@@ -3020,6 +3025,20 @@ private struct SimilarPhotoCard: View {
             .buttonStyle(.plain)
             .padding(.top, 2)
             .padding(.trailing, 2)
+
+            HStack {
+                Text(storageText)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.52), in: Capsule())
+                Spacer(minLength: 0)
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
         .frame(width: cardWidth, height: 146)
     }

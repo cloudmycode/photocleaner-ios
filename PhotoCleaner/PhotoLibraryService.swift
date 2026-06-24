@@ -609,27 +609,44 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let snapshot = await Task.detached(priority: .utility) {
-                Self.makeMediaAssetSnapshot()
+
+            // Phase 1: fast — populate asset arrays immediately
+            let fastSnapshot = await Task.detached(priority: .userInitiated) {
+                Self.makeFastMediaAssetSnapshot()
             }.value
             guard !Task.isCancelled else {
                 isRestoringMediaAssets = false
                 return
             }
 
-            screenshotAssets = snapshot.screenshotAssets
-            screenshotCount = snapshot.screenshotAssets.count
-            videoAssets = snapshot.videoAssets
-            videoCount = snapshot.videoAssets.count
-            largeVideoAssets = snapshot.largeVideoAssets
-            largeVideoCount = snapshot.largeVideoAssets.count
-            screenRecordingAssets = snapshot.screenRecordingAssets
-            screenRecordingCount = snapshot.screenRecordingAssets.count
-            videoStorageBytes = snapshot.videoStorageBytes
-            screenshotStorageBytes = snapshot.screenshotStorageBytes
-            largeVideoStorageBytes = snapshot.largeVideoStorageBytes
-            screenRecordingStorageBytes = snapshot.screenRecordingStorageBytes
-            mediaStorageBytes = snapshot.mediaStorageBytes
+            screenshotAssets = fastSnapshot.screenshotAssets
+            screenshotCount = fastSnapshot.screenshotAssets.count
+            videoAssets = fastSnapshot.videoAssets
+            videoCount = fastSnapshot.videoAssets.count
+            largeVideoAssets = fastSnapshot.largeVideoAssets
+            largeVideoCount = fastSnapshot.largeVideoAssets.count
+            screenRecordingAssets = fastSnapshot.screenRecordingAssets
+            screenRecordingCount = fastSnapshot.screenRecordingAssets.count
+
+            // Phase 2: slow — compute storage bytes in background
+            let storageValues = await Task.detached(priority: .utility) {
+                Self.computeStorageForAssets(
+                    screenshots: fastSnapshot.screenshotAssets,
+                    videos: fastSnapshot.videoAssets,
+                    largeVideos: fastSnapshot.largeVideoAssets,
+                    recordings: fastSnapshot.screenRecordingAssets
+                )
+            }.value
+            guard !Task.isCancelled else {
+                isRestoringMediaAssets = false
+                return
+            }
+
+            videoStorageBytes = storageValues.videoStorageBytes
+            screenshotStorageBytes = storageValues.screenshotStorageBytes
+            largeVideoStorageBytes = storageValues.largeVideoStorageBytes
+            screenRecordingStorageBytes = storageValues.screenRecordingStorageBytes
+            mediaStorageBytes = storageValues.totalStorageBytes
             persistHomeSummary()
             isRestoringMediaAssets = false
         }
@@ -1210,6 +1227,65 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             initialBurstCandidateStorageBytes: burstCandidateStorageBytes,
             emptyAlbumCount: emptyAlbums.count,
             emptyAlbums: emptyAlbums
+        )
+    }
+
+    nonisolated private static func makeFastMediaAssetSnapshot() -> MediaAssetSnapshot {
+        let imageAssets = fetchImageAssets()
+        let videos = fetchVideoAssets()
+        let screenshotAssets = Array(
+            imageAssets
+                .filter { $0.mediaSubtypes.contains(.photoScreenshot) }
+                .reversed()
+        )
+        let videoAssets = Array(videos.reversed())
+        let largeVideoAssets = Array(
+            videos
+                .filter { $0.duration >= 60 }
+                .reversed()
+        )
+        let screenRecordingAssets = Array(
+            videos
+                .filter { $0.mediaSubtypes.contains(.videoScreenRecording) }
+                .reversed()
+        )
+        return MediaAssetSnapshot(
+            screenshotAssets: screenshotAssets,
+            videoAssets: videoAssets,
+            largeVideoAssets: largeVideoAssets,
+            screenRecordingAssets: screenRecordingAssets,
+            mediaStorageBytes: 0,
+            videoStorageBytes: 0,
+            screenshotStorageBytes: 0,
+            largeVideoStorageBytes: 0,
+            screenRecordingStorageBytes: 0
+        )
+    }
+
+    private struct StorageValues {
+        let videoStorageBytes: Int64
+        let screenshotStorageBytes: Int64
+        let largeVideoStorageBytes: Int64
+        let screenRecordingStorageBytes: Int64
+        let totalStorageBytes: Int64
+    }
+
+    nonisolated private static func computeStorageForAssets(
+        screenshots: [PHAsset],
+        videos: [PHAsset],
+        largeVideos: [PHAsset],
+        recordings: [PHAsset]
+    ) -> StorageValues {
+        let imageStorageByID = storageMap(for: screenshots)
+        let videoStorageByID = storageMap(for: videos)
+        let imageStorageBytes = imageStorageByID.values.reduce(Int64(0), +)
+        let videoStorageBytes = videoStorageByID.values.reduce(Int64(0), +)
+        return StorageValues(
+            videoStorageBytes: videoStorageBytes,
+            screenshotStorageBytes: storageBytes(for: screenshots, storageByID: imageStorageByID),
+            largeVideoStorageBytes: storageBytes(for: largeVideos, storageByID: videoStorageByID),
+            screenRecordingStorageBytes: storageBytes(for: recordings, storageByID: videoStorageByID),
+            totalStorageBytes: imageStorageBytes + videoStorageBytes
         )
     }
 
