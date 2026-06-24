@@ -1529,7 +1529,7 @@ struct ScreenshotListCleanView: View {
     }
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+        Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
     }
 
     var body: some View {
@@ -1552,7 +1552,7 @@ struct ScreenshotListCleanView: View {
                 }
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 10) {
+                    LazyVGrid(columns: columns, spacing: 2) {
                         ForEach(assets, id: \.localIdentifier) { asset in
                             ScreenshotListItem(
                                 asset: asset,
@@ -1565,8 +1565,8 @@ struct ScreenshotListCleanView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
+                    .padding(.horizontal, 2)
+                    .padding(.top, 2)
                     .padding(.bottom, selectedIDs.isEmpty ? 24 : 104)
                 }
             }
@@ -1680,7 +1680,7 @@ private struct ScreenshotListItem: View {
             ZStack(alignment: .topTrailing) {
                 PhotoThumbnailView(
                     asset: asset,
-                    targetSize: CGSize(width: 300, height: 520)
+                    targetSize: CGSize(width: 320, height: 320)
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
@@ -1696,18 +1696,18 @@ private struct ScreenshotListItem: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
             .background(Color.cleanerCard)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
+                Rectangle()
                     .stroke(
                         isSelected ? Color.cleanerBlue : Color.cleanerBorder,
                         lineWidth: isSelected ? 2 : 0.5
                     )
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
             .onTapGesture(perform: onPreview)
         }
-        .aspectRatio(0.62, contentMode: .fit)
+        .aspectRatio(1, contentMode: .fit)
     }
 
     private var storageBadge: some View {
