@@ -133,6 +133,7 @@ struct QuickCleanView: View {
             }
         }
         .background(Color.cleanerBackground)
+        .animatedTabBarVisible()
     }
 
     private var scanStatus: String {
@@ -210,6 +211,7 @@ struct AlbumsView: View {
             }
         }
         .background(Color.cleanerBackground)
+        .animatedTabBarVisible()
     }
 }
 
@@ -293,7 +295,7 @@ struct MonthlyReviewView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .animatedTabBarHidden()
         .background(Color.cleanerBackground)
         .confirmationDialog(
             "month.delete.confirm.title",
@@ -696,7 +698,7 @@ struct SimilarCleanView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .animatedTabBarHidden()
         .sheet(item: $previewPhoto) { photo in
             PhotoPreview(photo: photo, isSelected: selectedIDs.contains(photo.id)) {
                 toggle(photo)
@@ -956,7 +958,7 @@ struct AssetSwipeCleanView: View {
         }
         .navigationTitle(category.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .animatedTabBarHidden()
         .background(Color.cleanerBackground)
         .alert("operation.failed", isPresented: Binding(
             get: { operationError != nil },
@@ -1336,6 +1338,7 @@ struct VideoCompressView: View {
                 .padding(.vertical, 28)
         }
         .background(Color.cleanerBackground)
+        .animatedTabBarVisible()
     }
 }
 
@@ -1400,6 +1403,7 @@ struct SettingsView: View {
         } message: {
             Text("settings.clear.cache.confirm.message")
         }
+        .animatedTabBarVisible()
     }
 
     private var formattedCacheSize: String {
@@ -1430,6 +1434,87 @@ private struct CleanerScroll<Content: View>: View {
                 content
             }
             .padding(.bottom, 24)
+        }
+    }
+}
+
+private extension View {
+    func animatedTabBarVisible() -> some View {
+        background(TabBarVisibilityAnimator(isHidden: false).frame(width: 0, height: 0))
+    }
+
+    func animatedTabBarHidden() -> some View {
+        background(TabBarVisibilityAnimator(isHidden: true).frame(width: 0, height: 0))
+    }
+}
+
+private struct TabBarVisibilityAnimator: UIViewControllerRepresentable {
+    let isHidden: Bool
+
+    func makeUIViewController(context: Context) -> TabBarVisibilityController {
+        TabBarVisibilityController()
+    }
+
+    func updateUIViewController(_ controller: TabBarVisibilityController, context: Context) {
+        controller.setTabBarHidden(isHidden, animated: true)
+    }
+
+    static func dismantleUIViewController(_ controller: TabBarVisibilityController, coordinator: ()) {
+        controller.setTabBarHidden(false, animated: true)
+    }
+}
+
+private final class TabBarVisibilityController: UIViewController {
+    private var lastHiddenState: Bool?
+    private var pendingHiddenState = false
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        lastHiddenState = nil
+        applyTabBarHidden(pendingHiddenState, animated: animated)
+    }
+
+    func setTabBarHidden(_ hidden: Bool, animated: Bool) {
+        pendingHiddenState = hidden
+        applyTabBarHidden(hidden, animated: animated)
+    }
+
+    private func applyTabBarHidden(_ hidden: Bool, animated: Bool) {
+        guard lastHiddenState != hidden else { return }
+        lastHiddenState = hidden
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tabBar = self.tabBarController?.tabBar else { return }
+            let offset = tabBar.bounds.height + 18
+            let duration = animated ? 0.24 : 0
+
+            if hidden {
+                tabBar.isHidden = false
+                UIView.animate(
+                    withDuration: duration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState]
+                ) {
+                    tabBar.alpha = 0
+                    tabBar.transform = CGAffineTransform(translationX: 0, y: offset)
+                } completion: { finished in
+                    if finished, self.lastHiddenState == true {
+                        tabBar.isHidden = true
+                    }
+                }
+            } else {
+                tabBar.isHidden = false
+                tabBar.alpha = 0
+                tabBar.transform = CGAffineTransform(translationX: 0, y: offset)
+                UIView.animate(
+                    withDuration: duration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState]
+                ) {
+                    tabBar.alpha = 1
+                    tabBar.transform = .identity
+                }
+            }
         }
     }
 }
