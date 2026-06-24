@@ -1676,36 +1676,38 @@ private struct ScreenshotListItem: View {
     let onPreview: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            PhotoThumbnailView(
-                asset: asset,
-                targetSize: CGSize(width: 300, height: 520)
-            )
-            .aspectRatio(0.62, contentMode: .fill)
-            .frame(maxWidth: .infinity)
-            .clipped()
-
-            selectionButton
-                .padding(6)
-
-            HStack {
-                storageBadge
-                Spacer(minLength: 0)
-            }
-            .padding(7)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        }
-        .background(Color.cleanerCard)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(
-                    isSelected ? Color.cleanerBlue : Color.cleanerBorder,
-                    lineWidth: isSelected ? 2 : 0.5
+        GeometryReader { proxy in
+            ZStack(alignment: .topTrailing) {
+                PhotoThumbnailView(
+                    asset: asset,
+                    targetSize: CGSize(width: 300, height: 520)
                 )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
+
+                selectionButton
+                    .padding(6)
+
+                HStack {
+                    storageBadge
+                    Spacer(minLength: 0)
+                }
+                .padding(7)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            }
+            .background(Color.cleanerCard)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        isSelected ? Color.cleanerBlue : Color.cleanerBorder,
+                        lineWidth: isSelected ? 2 : 0.5
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onTapGesture(perform: onPreview)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture(perform: onPreview)
+        .aspectRatio(0.62, contentMode: .fit)
     }
 
     private var storageBadge: some View {
