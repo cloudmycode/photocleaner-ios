@@ -189,3 +189,10 @@
 "smart.search.sensitive.id_card" = "身分証明書";
 "smart.search.sensitive.passport" = "パスポート";
 "smart.search.sensitive.document" = "書類/領収書";
+"smart.search.visual.person" = "人物";
+"smart.search.visual.red_clothing" = "赤い服";
+"smart.search.visual.blue_clothing" = "青い服";
+"smart.search.visual.white_clothing" = "白い服";
+"smart.search.visual.black_clothing" = "黒い服";
+"smart.search.visual.yellow_clothing" = "黄色い服";
+"smart.search.visual.green_clothing" = "緑の服";

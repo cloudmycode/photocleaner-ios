@@ -189,3 +189,10 @@
 "smart.search.sensitive.id_card" = "证件/身份证";
 "smart.search.sensitive.passport" = "护照";
 "smart.search.sensitive.document" = "文档/票据";
+"smart.search.visual.person" = "人物";
+"smart.search.visual.red_clothing" = "红色衣服";
+"smart.search.visual.blue_clothing" = "蓝色衣服";
+"smart.search.visual.white_clothing" = "白色衣服";
+"smart.search.visual.black_clothing" = "黑色衣服";
+"smart.search.visual.yellow_clothing" = "黄色衣服";
+"smart.search.visual.green_clothing" = "绿色衣服";

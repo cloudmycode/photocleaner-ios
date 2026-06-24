@@ -3167,6 +3167,7 @@ private struct PhotoSearchQuery: Decodable {
     var maxSizeMB: Double?
     var hasLocation: Bool?
     var keywords: [String]?
+    var visualTags: [String]?
     var ocrKeywords: [String]?
     var ocrRegexes: [String]?
     var sensitiveTypes: [String]?
@@ -3205,6 +3206,7 @@ private struct PhotoSearchQuery: Decodable {
             chips.append(String(localized: hasLocation ? "smart.search.has.location" : "smart.search.no.location"))
         }
         chips.append(contentsOf: (sensitiveTypes ?? []).map(Self.sensitiveTypeLabel))
+        chips.append(contentsOf: effectiveVisualTags.map(Self.visualTagLabel))
         chips.append(contentsOf: (ocrKeywords ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.keyword.format"), $0) })
         chips.append(contentsOf: (ocrRegexes ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.regex.format"), $0) })
         chips.append(contentsOf: (keywords ?? []).map { "#\($0)" })
@@ -3249,6 +3251,85 @@ private struct PhotoSearchQuery: Decodable {
             return type
         }
     }
+
+    var effectiveVisualTags: [String] {
+        Array(Set((visualTags ?? []) + Self.inferredVisualTags(from: rawText))).sorted()
+    }
+
+    private static func visualTagLabel(_ tag: String) -> String {
+        switch tag.lowercased() {
+        case "person", "people", "human":
+            return String(localized: "smart.search.visual.person")
+        case "red_clothing":
+            return String(localized: "smart.search.visual.red_clothing")
+        case "blue_clothing":
+            return String(localized: "smart.search.visual.blue_clothing")
+        case "white_clothing":
+            return String(localized: "smart.search.visual.white_clothing")
+        case "black_clothing":
+            return String(localized: "smart.search.visual.black_clothing")
+        case "yellow_clothing":
+            return String(localized: "smart.search.visual.yellow_clothing")
+        case "green_clothing":
+            return String(localized: "smart.search.visual.green_clothing")
+        default:
+            return "#\(tag)"
+        }
+    }
+
+    private static func inferredVisualTags(from rawText: String?) -> [String] {
+        let text = rawText ?? ""
+        let normalized = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        var tags: [String] = []
+        if normalized.contains("人") ||
+            normalized.contains("女生") ||
+            normalized.contains("女孩") ||
+            normalized.contains("男生") ||
+            normalized.contains("小孩") ||
+            normalized.contains("person") ||
+            normalized.contains("people") ||
+            normalized.contains("girl") ||
+            normalized.contains("boy") {
+            tags.append("person")
+        }
+        for item in [
+            ("红", "red"),
+            ("红色", "red"),
+            ("red", "red"),
+            ("蓝", "blue"),
+            ("蓝色", "blue"),
+            ("blue", "blue"),
+            ("白", "white"),
+            ("白色", "white"),
+            ("white", "white"),
+            ("黑", "black"),
+            ("黑色", "black"),
+            ("black", "black"),
+            ("黄", "yellow"),
+            ("黄色", "yellow"),
+            ("yellow", "yellow"),
+            ("绿", "green"),
+            ("绿色", "green"),
+            ("green", "green")
+        ] where normalized.contains(item.0) {
+            if normalized.contains("衣") ||
+                normalized.contains("衣服") ||
+                normalized.contains("上衣") ||
+                normalized.contains("裙") ||
+                normalized.contains("穿") ||
+                normalized.contains("clothing") ||
+                normalized.contains("shirt") ||
+                normalized.contains("dress") {
+                tags.append("\(item.1)_clothing")
+            } else {
+                tags.append(item.1)
+            }
+        }
+        return Array(Set(tags))
+    }
 }
 
 private struct CloudPhotoSearchParser {
@@ -3288,6 +3369,7 @@ private enum PhotoSearchEngine {
         let bounds = allLocationBounds(for: query)
         let minBytes = query.minSizeMB.map { Int64($0 * 1_000_000) }
         let maxBytes = query.maxSizeMB.map { Int64($0 * 1_000_000) }
+        let visualTags = query.effectiveVisualTags
 
         let metadataMatches = assets.filter { asset in
             let entry = indexedEntries[asset.localIdentifier]
@@ -3313,6 +3395,10 @@ private enum PhotoSearchEngine {
                 let bytes = entry?.storageBytes ?? storageBytes(asset)
                 if let minBytes, bytes < minBytes { return false }
                 if let maxBytes, bytes > maxBytes { return false }
+            }
+            if !visualTags.isEmpty,
+               !matchesVisualTags(visualTags, entry: entry) {
+                return false
             }
             return true
         }
@@ -3393,6 +3479,25 @@ private enum PhotoSearchEngine {
         if !(query.ocrRegexes ?? []).isEmpty { return true }
         if !(query.sensitiveTypes ?? []).isEmpty { return true }
         return inferredSensitiveTypes(from: query.rawText).isEmpty == false
+    }
+
+    private static func matchesVisualTags(
+        _ requestedTags: [String],
+        entry: PhotoSearchIndexEntry?
+    ) -> Bool {
+        let indexedTags = Set(entry?.visualTags ?? [])
+        guard !indexedTags.isEmpty else { return false }
+        return requestedTags.allSatisfy { requestedTag in
+            let normalized = requestedTag.lowercased()
+            switch normalized {
+            case "person", "people", "human":
+                return indexedTags.contains("person") ||
+                    indexedTags.contains("people") ||
+                    indexedTags.contains("human")
+            default:
+                return indexedTags.contains(normalized)
+            }
+        }
     }
 
     private static func matchesOCRText(_ text: String, query: PhotoSearchQuery) -> Bool {

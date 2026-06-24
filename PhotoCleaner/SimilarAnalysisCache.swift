@@ -13,6 +13,8 @@ struct PhotoSearchIndexEntry: Codable {
     let pixelWidth: Int
     let pixelHeight: Int
     let storageBytes: Int64
+    var visualTags: [String]?
+    var visualIndexedAt: Date?
     var ocrText: String?
     var ocrIndexedAt: Date?
 }
@@ -25,7 +27,7 @@ actor PhotoSearchIndexStore {
 
     static let shared = PhotoSearchIndexStore()
 
-    private let algorithmVersion = 1
+    private let algorithmVersion = 2
     private let fileURL: URL
     private var entries: [String: PhotoSearchIndexEntry]?
 
@@ -70,9 +72,12 @@ actor PhotoSearchIndexStore {
             let signature = Self.signature(for: asset)
             let previous = existing[id]
             let canReuseOCR = previous?.signature == signature
+            let canReuseVisual = previous?.signature == signature
             updated[id] = Self.entry(
                 for: asset,
                 signature: signature,
+                previousVisualTags: canReuseVisual ? previous?.visualTags : nil,
+                previousVisualIndexedAt: canReuseVisual ? previous?.visualIndexedAt : nil,
                 previousOCRText: canReuseOCR ? previous?.ocrText : nil,
                 previousOCRIndexedAt: canReuseOCR ? previous?.ocrIndexedAt : nil
             )
@@ -105,6 +110,35 @@ actor PhotoSearchIndexStore {
         loadIfNeeded()
         for value in values {
             upsertOCRText(value.text, for: value.asset)
+        }
+        try save()
+    }
+
+    func imageAssetsNeedingVisualIndex(from assets: [PHAsset]) -> [PHAsset] {
+        loadIfNeeded()
+        let existing = entries ?? [:]
+        return assets.filter { asset in
+            guard asset.mediaType == .image else { return false }
+            let entry = existing[asset.localIdentifier]
+            return entry?.signature != Self.signature(for: asset) ||
+                entry?.visualIndexedAt == nil
+        }
+    }
+
+    func updateVisualTags(_ tags: [String], for asset: PHAsset) throws {
+        loadIfNeeded()
+        upsertVisualTags(tags, for: asset)
+        try save()
+    }
+
+    func updateSearchAnalyses(
+        _ values: [(asset: PHAsset, ocrText: String, visualTags: [String])]
+    ) throws {
+        guard !values.isEmpty else { return }
+        loadIfNeeded()
+        for value in values {
+            upsertOCRText(value.ocrText, for: value.asset)
+            upsertVisualTags(value.visualTags, for: value.asset)
         }
         try save()
     }
@@ -148,6 +182,8 @@ actor PhotoSearchIndexStore {
         var entry = Self.entry(
             for: asset,
             signature: signature,
+            previousVisualTags: currentEntry(for: asset, signature: signature)?.visualTags,
+            previousVisualIndexedAt: currentEntry(for: asset, signature: signature)?.visualIndexedAt,
             previousOCRText: text,
             previousOCRIndexedAt: Date()
         )
@@ -156,9 +192,37 @@ actor PhotoSearchIndexStore {
         entries?[asset.localIdentifier] = entry
     }
 
+    private func upsertVisualTags(_ tags: [String], for asset: PHAsset) {
+        let signature = Self.signature(for: asset)
+        var entry = Self.entry(
+            for: asset,
+            signature: signature,
+            previousVisualTags: tags,
+            previousVisualIndexedAt: Date(),
+            previousOCRText: currentEntry(for: asset, signature: signature)?.ocrText,
+            previousOCRIndexedAt: currentEntry(for: asset, signature: signature)?.ocrIndexedAt
+        )
+        entry.visualTags = tags
+        entry.visualIndexedAt = Date()
+        entries?[asset.localIdentifier] = entry
+    }
+
+    private func currentEntry(
+        for asset: PHAsset,
+        signature: String
+    ) -> PhotoSearchIndexEntry? {
+        guard let entry = entries?[asset.localIdentifier],
+              entry.signature == signature else {
+            return nil
+        }
+        return entry
+    }
+
     private static func entry(
         for asset: PHAsset,
         signature: String,
+        previousVisualTags: [String]?,
+        previousVisualIndexedAt: Date?,
         previousOCRText: String?,
         previousOCRIndexedAt: Date?
     ) -> PhotoSearchIndexEntry {
@@ -173,6 +237,8 @@ actor PhotoSearchIndexStore {
             pixelWidth: asset.pixelWidth,
             pixelHeight: asset.pixelHeight,
             storageBytes: storageBytes(for: asset),
+            visualTags: previousVisualTags,
+            visualIndexedAt: previousVisualIndexedAt,
             ocrText: previousOCRText,
             ocrIndexedAt: previousOCRIndexedAt
         )

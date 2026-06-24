@@ -189,3 +189,10 @@
 "smart.search.sensitive.id_card" = "ID documents";
 "smart.search.sensitive.passport" = "Passports";
 "smart.search.sensitive.document" = "Documents/receipts";
+"smart.search.visual.person" = "People";
+"smart.search.visual.red_clothing" = "Red clothing";
+"smart.search.visual.blue_clothing" = "Blue clothing";
+"smart.search.visual.white_clothing" = "White clothing";
+"smart.search.visual.black_clothing" = "Black clothing";
+"smart.search.visual.yellow_clothing" = "Yellow clothing";
+"smart.search.visual.green_clothing" = "Green clothing";

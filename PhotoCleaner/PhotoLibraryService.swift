@@ -994,7 +994,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             try? await PhotoSearchIndexStore.shared.rebuildMetadata(
                 for: imageAssets + videoAssets
             )
-            await Self.indexSearchOCRIfNeeded(for: imageAssets)
+            await Self.indexSearchImagesIfNeeded(for: imageAssets)
         }
     }
 
@@ -1008,34 +1008,54 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private func startSearchOCRIndexing(for assets: [PHAsset]) {
         searchIndexTask?.cancel()
         searchIndexTask = Task.detached(priority: .background) {
-            await Self.indexSearchOCRIfNeeded(for: assets)
+            await Self.indexSearchImagesIfNeeded(for: assets)
         }
     }
 
-    nonisolated private static func indexSearchOCRIfNeeded(for assets: [PHAsset]) async {
-        let pending = await PhotoSearchIndexStore.shared.assetsNeedingOCR(from: assets)
-        var batch: [(asset: PHAsset, text: String)] = []
+    nonisolated private static func indexSearchImagesIfNeeded(for assets: [PHAsset]) async {
+        let ocrPending = await PhotoSearchIndexStore.shared.assetsNeedingOCR(from: assets)
+        let visualPending = await PhotoSearchIndexStore.shared.imageAssetsNeedingVisualIndex(from: assets)
+        let pendingIDs = Set((ocrPending + visualPending).map(\.localIdentifier))
+        let pending = assets.filter { pendingIDs.contains($0.localIdentifier) }
+        var batch: [(asset: PHAsset, ocrText: String, visualTags: [String])] = []
         batch.reserveCapacity(12)
         for (index, asset) in pending.enumerated() {
             guard !Task.isCancelled else { return }
-            let text = await searchRecognizedText(for: asset) ?? ""
-            batch.append((asset, text))
+            let analysis = await searchImageAnalysis(for: asset)
+            batch.append((asset, analysis.ocrText, analysis.visualTags))
             if batch.count >= 12 {
-                try? await PhotoSearchIndexStore.shared.updateOCRTexts(batch)
+                try? await PhotoSearchIndexStore.shared.updateSearchAnalyses(batch)
                 batch.removeAll(keepingCapacity: true)
             }
             if index.isMultiple(of: 5) {
                 await Task.yield()
             }
         }
-        try? await PhotoSearchIndexStore.shared.updateOCRTexts(batch)
+        try? await PhotoSearchIndexStore.shared.updateSearchAnalyses(batch)
+    }
+
+    nonisolated private static func searchImageAnalysis(
+        for asset: PHAsset
+    ) async -> (ocrText: String, visualTags: [String]) {
+        guard let image = await requestSearchAnalysisImage(for: asset),
+              let cgImage = image.cgImage else {
+            return ("", [])
+        }
+        return (
+            searchRecognizedText(for: cgImage) ?? "",
+            searchVisualTags(for: cgImage)
+        )
     }
 
     nonisolated private static func searchRecognizedText(for asset: PHAsset) async -> String? {
-        guard let image = await requestSearchOCRImage(for: asset),
+        guard let image = await requestSearchAnalysisImage(for: asset),
               let cgImage = image.cgImage else {
             return nil
         }
+        return searchRecognizedText(for: cgImage)
+    }
+
+    nonisolated private static func searchRecognizedText(for cgImage: CGImage) -> String? {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .fast
         request.usesLanguageCorrection = false
@@ -1051,7 +1071,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
-    nonisolated private static func requestSearchOCRImage(for asset: PHAsset) async -> UIImage? {
+    nonisolated private static func requestSearchAnalysisImage(for asset: PHAsset) async -> UIImage? {
         await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
             options.deliveryMode = .fastFormat
@@ -1071,6 +1091,134 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 resumed = true
                 continuation.resume(returning: cancelled ? nil : image)
             }
+        }
+    }
+
+    nonisolated private static func searchVisualTags(for image: CGImage) -> [String] {
+        var tags = Set<String>()
+        let humanRects = detectedHumanRects(in: image)
+        if !humanRects.isEmpty {
+            tags.insert("person")
+            tags.insert("people")
+            tags.insert("human")
+        }
+
+        if let color = dominantColorTag(in: image, normalizedRect: CGRect(x: 0, y: 0, width: 1, height: 1)) {
+            tags.insert(color)
+        }
+
+        for rect in humanRects.prefix(3) {
+            let clothingRect = CGRect(
+                x: rect.minX + rect.width * 0.18,
+                y: rect.minY + rect.height * 0.20,
+                width: rect.width * 0.64,
+                height: rect.height * 0.45
+            ).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+            guard !clothingRect.isNull,
+                  let color = dominantColorTag(in: image, normalizedRect: clothingRect) else {
+                continue
+            }
+            tags.insert("\(color)_clothing")
+            tags.insert("clothing")
+        }
+
+        return tags.sorted()
+    }
+
+    nonisolated private static func detectedHumanRects(in image: CGImage) -> [CGRect] {
+        let request = VNDetectHumanRectanglesRequest()
+        request.upperBodyOnly = false
+        let handler = VNImageRequestHandler(cgImage: image, orientation: .up)
+        do {
+            try handler.perform([request])
+            return request.results?
+                .map(\.boundingBox)
+                .filter { $0.width * $0.height > 0.03 } ?? []
+        } catch {
+            return []
+        }
+    }
+
+    nonisolated private static func dominantColorTag(
+        in image: CGImage,
+        normalizedRect: CGRect
+    ) -> String? {
+        let width = 48
+        let height = 48
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.interpolationQuality = .low
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let sampleRect = normalizedRect
+            .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        guard !sampleRect.isNull else { return nil }
+
+        let minX = max(Int((sampleRect.minX * CGFloat(width)).rounded(.down)), 0)
+        let maxX = min(Int((sampleRect.maxX * CGFloat(width)).rounded(.up)), width)
+        let minY = max(Int(((1 - sampleRect.maxY) * CGFloat(height)).rounded(.down)), 0)
+        let maxY = min(Int(((1 - sampleRect.minY) * CGFloat(height)).rounded(.up)), height)
+
+        var buckets: [String: Int] = [:]
+        for y in minY..<maxY {
+            for x in minX..<maxX {
+                let offset = (y * width + x) * 4
+                let red = Double(pixels[offset]) / 255
+                let green = Double(pixels[offset + 1]) / 255
+                let blue = Double(pixels[offset + 2]) / 255
+                guard let tag = colorTag(red: red, green: green, blue: blue) else {
+                    continue
+                }
+                buckets[tag, default: 0] += 1
+            }
+        }
+        return buckets.max { $0.value < $1.value }?.key
+    }
+
+    nonisolated private static func colorTag(red: Double, green: Double, blue: Double) -> String? {
+        let maxValue = max(red, green, blue)
+        let minValue = min(red, green, blue)
+        let delta = maxValue - minValue
+        let brightness = maxValue
+        guard brightness > 0.18 else { return "black" }
+        if delta < 0.10 {
+            return brightness > 0.78 ? "white" : "gray"
+        }
+
+        let hue: Double
+        if maxValue == red {
+            hue = ((green - blue) / delta).truncatingRemainder(dividingBy: 6) / 6
+        } else if maxValue == green {
+            hue = ((blue - red) / delta + 2) / 6
+        } else {
+            hue = ((red - green) / delta + 4) / 6
+        }
+        let normalizedHue = hue < 0 ? hue + 1 : hue
+        switch normalizedHue {
+        case 0..<0.045, 0.94...1:
+            return "red"
+        case 0.045..<0.11:
+            return "orange"
+        case 0.11..<0.18:
+            return "yellow"
+        case 0.18..<0.43:
+            return "green"
+        case 0.43..<0.72:
+            return "blue"
+        case 0.72..<0.86:
+            return "purple"
+        default:
+            return "red"
         }
     }
 
