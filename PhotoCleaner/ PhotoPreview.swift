@@ -618,7 +618,7 @@ struct MonthlyReviewView: View {
         .onChange(of: library.markedIDs(for: monthID)) {
             syncReviewState()
         }
-        .assetPreview($previewAsset)
+        .assetPreview($previewAsset, assets: availableAssets)
     }
 
     private func syncReviewState() {
@@ -994,6 +994,10 @@ struct SimilarCleanView: View {
         }
     }
 
+    private var previewAssets: [PHAsset] {
+        groups.flatMap(\.assets).map(\.asset)
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
@@ -1039,6 +1043,7 @@ struct SimilarCleanView: View {
         .animatedTabBarHidden()
         .assetPreview(
             $previewPhoto,
+            assets: previewAssets,
             isSelected: { selectedIDs.contains($0) }
         ) { wrapped in
             if selectedIDs.contains(wrapped.id) {
@@ -1385,7 +1390,7 @@ struct AssetSwipeCleanView: View {
         .onAppear {
             library.restoreMediaAssetsIfNeeded()
         }
-        .assetPreview($previewAsset)
+        .assetPreview($previewAsset, assets: sourceAssets)
         .alert("operation.failed", isPresented: Binding(
             get: { operationError != nil },
             set: { if !$0 { operationError = nil } }
@@ -1699,6 +1704,7 @@ struct AssetGridCleanView: View {
             .animation(.easeOut(duration: 0.08), value: !selectedIDs.isEmpty)
             .assetPreview(
                 $previewAsset,
+                assets: assets,
                 isSelected: { selectedIDs.contains($0) },
                 onToggle: { item in toggleSelection(item.asset) }
             )
@@ -1925,6 +1931,7 @@ struct LivePhotoCleanView: View {
         .animation(.easeOut(duration: 0.08), value: !selectedIDs.isEmpty)
         .assetPreview(
             $previewAsset,
+            assets: assets,
             isSelected: { selectedIDs.contains($0) },
             onToggle: { item in toggleSelection(item.asset) }
         )
@@ -2396,6 +2403,7 @@ private struct LivePhotoSurface: UIViewRepresentable {
 extension View {
     func assetPreview(
         _ item: Binding<IdentifiablePHAsset?>,
+        assets: [PHAsset] = [],
         isSelected: @escaping (String) -> Bool = { _ in false },
         onToggle: @escaping (IdentifiablePHAsset) -> Void = { _ in }
     ) -> some View {
@@ -2405,7 +2413,19 @@ extension View {
                     asset: asset.asset,
                     onClose: { withAnimation { item.wrappedValue = nil } },
                     isSelected: isSelected(asset.id),
-                    onToggle: { onToggle(asset) }
+                    onToggle: { onToggle(asset) },
+                    onPrevious: {
+                        guard let previous = Self.adjacentAsset(before: asset.asset, in: assets) else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            item.wrappedValue = IdentifiablePHAsset(asset: previous)
+                        }
+                    },
+                    onNext: {
+                        guard let next = Self.adjacentAsset(after: asset.asset, in: assets) else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            item.wrappedValue = IdentifiablePHAsset(asset: next)
+                        }
+                    }
                 )
                 .id(asset.id)
                 .transition(.asymmetric(
@@ -2416,6 +2436,23 @@ extension View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: item.wrappedValue?.id)
     }
+
+    private static func adjacentAsset(before asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
+        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
+              index > assets.startIndex else {
+            return nil
+        }
+        return assets[index - 1]
+    }
+
+    private static func adjacentAsset(after asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
+        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else {
+            return nil
+        }
+        let nextIndex = index + 1
+        guard nextIndex < assets.endIndex else { return nil }
+        return assets[nextIndex]
+    }
 }
 
 struct AssetPreviewView: View {
@@ -2424,11 +2461,14 @@ struct AssetPreviewView: View {
     var onClose: () -> Void = {}
     var isSelected: Bool = false
     var onToggle: (() -> Void)? = nil
+    var onPrevious: (() -> Void)? = nil
+    var onNext: (() -> Void)? = nil
 
     @State private var scale: CGFloat = 1
     @State private var settledScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var settledOffset: CGSize = .zero
+    @State private var pagingOffset: CGFloat = 0
     @State private var showDetail: Bool = false
     @State private var locationDescription: String = "-"
     @State private var storageDescription: String = "-"
@@ -2447,10 +2487,11 @@ struct AssetPreviewView: View {
                 mediaContent
                     .frame(width: fitted.width, height: fitted.height)
                     .scaleEffect(scale)
-                    .offset(offset)
+                    .offset(x: offset.width + pagingOffset, y: offset.height)
                     .position(x: geo.size.width / 2, y: geo.size.height / 2)
                     .gesture(magnifyGesture)
                     .simultaneousGesture(panGesture)
+                    .simultaneousGesture(pageGesture)
                     .onTapGesture { dismiss() }
                     .onTapGesture(count: 2) { handleDoubleTap() }
             }
@@ -2645,6 +2686,34 @@ struct AssetPreviewView: View {
             }
             .onEnded { _ in
                 settledOffset = offset
+            }
+    }
+
+    private var pageGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                guard scale <= 1.01, !showDetail else { return }
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                pagingOffset = value.translation.width * 0.28
+            }
+            .onEnded { value in
+                guard scale <= 1.01, !showDetail else {
+                    pagingOffset = 0
+                    return
+                }
+                let isHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.2
+                let passedThreshold = abs(value.translation.width) > 70
+                defer {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        pagingOffset = 0
+                    }
+                }
+                guard isHorizontal, passedThreshold else { return }
+                if value.translation.width < 0 {
+                    onNext?()
+                } else {
+                    onPrevious?()
+                }
             }
     }
 
@@ -2875,7 +2944,7 @@ struct SmartPhotoSearchView: View {
         }
         .background(Color.cleanerBackground)
         .animatedTabBarVisible()
-        .assetPreview($previewAsset)
+        .assetPreview($previewAsset, assets: results)
         .onChange(of: speech.transcript) {
             queryText = speech.transcript
         }
