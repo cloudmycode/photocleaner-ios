@@ -165,6 +165,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private var scanTask: Task<Void, Never>?
     private var libraryChangeDebounce: Task<Void, Never>?
     private var hasRequestedStartupScan = false
+    private var isRestoringCachedDuplicates = false
+    private var isRestoringCachedBursts = false
 
     override init() {
         authorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -192,6 +194,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
             guard !hasRequestedStartupScan else { return }
             hasRequestedStartupScan = true
+            guard !hasCompletedInitialAnalysis else { return }
             refreshLibrary()
         }
     }
@@ -532,6 +535,57 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    func restoreCachedDuplicateGroupsIfNeeded() {
+        guard hasCompletedInitialAnalysis,
+              duplicateGroups.isEmpty,
+              duplicateCandidateCount > 0,
+              !isRestoringCachedDuplicates else {
+            return
+        }
+        isRestoringCachedDuplicates = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            let assets = await Task.detached(priority: .utility) {
+                Self.fetchImageAssets()
+            }.value
+            guard !Task.isCancelled else {
+                isRestoringCachedDuplicates = false
+                return
+            }
+            _ = await restoreDuplicateGroupsFromCache(in: assets)
+            isRestoringCachedDuplicates = false
+        }
+    }
+
+    func restoreCachedBurstGroupsIfNeeded() {
+        guard hasCompletedInitialAnalysis,
+              burstGroups.isEmpty,
+              burstCandidateCount > 0,
+              !isRestoringCachedBursts else {
+            return
+        }
+        isRestoringCachedBursts = true
+
+        Task { [weak self] in
+            guard let self else { return }
+            let candidates = await Task.detached(priority: .utility) {
+                let assets = Self.fetchImageAssets()
+                return Self.continuousShotCandidateGroups(
+                    assets: assets,
+                    maximumAdjacentInterval: Self.fallbackShotInterval,
+                    maximumSequenceDuration: Self.fallbackSequenceDuration
+                )
+            }.value
+            guard !Task.isCancelled else {
+                isRestoringCachedBursts = false
+                return
+            }
+            _ = await restoreBurstGroupsFromCache(candidates: candidates)
+            isRestoringCachedBursts = false
+        }
+    }
+
     nonisolated func storageBytes(for asset: PHAsset) -> Int64 {
         Self.assetStorageBytes(asset)
     }
@@ -545,7 +599,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetCollectionChangeRequest.deleteAssetCollections(collections)
         }
-        refreshLibrary()
     }
 
     func deleteAssets(with identifiers: Set<String>) async throws {
@@ -554,7 +607,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         try await PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.deleteAssets(result)
         }
-        refreshLibrary()
     }
 
     func setFavorite(_ isFavorite: Bool, for asset: PHAsset) async throws {

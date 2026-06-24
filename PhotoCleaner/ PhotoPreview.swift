@@ -1003,6 +1003,7 @@ struct SimilarCleanView: View {
             preheatGroupThumbnails()
         }
         .onAppear {
+            restoreCachedGroupsIfNeeded()
             selectNonBestPhotos()
             preheatGroupThumbnails()
         }
@@ -1114,6 +1115,15 @@ struct SimilarCleanView: View {
             for: assets,
             targetSize: CGSize(width: 132, height: 146)
         )
+    }
+
+    private func restoreCachedGroupsIfNeeded() {
+        switch mode {
+        case .duplicate:
+            library.restoreCachedDuplicateGroupsIfNeeded()
+        case .burst:
+            library.restoreCachedBurstGroupsIfNeeded()
+        }
     }
 
     private var titleKey: LocalizedStringKey {
