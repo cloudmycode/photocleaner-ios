@@ -1485,8 +1485,8 @@ private final class TabBarVisibilityController: UIViewController {
 
         DispatchQueue.main.async { [weak self] in
             guard let self, let tabBar = self.tabBarController?.tabBar else { return }
-            let offset = tabBar.bounds.height + 18
             let duration = animated ? 0.24 : 0
+            tabBar.transform = .identity
 
             if hidden {
                 tabBar.isHidden = false
@@ -1496,23 +1496,20 @@ private final class TabBarVisibilityController: UIViewController {
                     options: [.curveEaseInOut, .beginFromCurrentState]
                 ) {
                     tabBar.alpha = 0
-                    tabBar.transform = CGAffineTransform(translationX: 0, y: offset)
                 } completion: { finished in
                     if finished, self.lastHiddenState == true {
                         tabBar.isHidden = true
+                        tabBar.transform = .identity
                     }
                 }
             } else {
                 tabBar.isHidden = false
-                tabBar.alpha = 0
-                tabBar.transform = CGAffineTransform(translationX: 0, y: offset)
                 UIView.animate(
                     withDuration: duration,
                     delay: 0,
                     options: [.curveEaseInOut, .beginFromCurrentState]
                 ) {
                     tabBar.alpha = 1
-                    tabBar.transform = .identity
                 }
             }
         }
