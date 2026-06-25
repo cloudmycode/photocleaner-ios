@@ -1849,7 +1849,6 @@ struct LivePhotoCleanView: View {
     @State private var previewAsset: IdentifiablePHAsset?
     @State private var recommendedIDs = Set<String>()
     @State private var isLoadingRecommendations = false
-    @State private var didApplyAutomaticRecommendation = false
     @State private var recommendationTask: Task<Void, Never>?
 
     private var assets: [PHAsset] {
@@ -1905,10 +1904,8 @@ struct LivePhotoCleanView: View {
                 Button {
                     if selectedIDs.isEmpty {
                         selectedIDs = recommendedIDs
-                        didApplyAutomaticRecommendation = true
                     } else {
                         selectedIDs.removeAll()
-                        didApplyAutomaticRecommendation = true
                     }
                 } label: {
                     Text(selectedIDs.isEmpty ? "live.select.recommended" : "select.none")
@@ -1972,7 +1969,6 @@ struct LivePhotoCleanView: View {
             selectedIDs = selectedIDs.intersection(available)
             removedIDs = removedIDs.intersection(available)
             recommendedIDs = recommendedIDs.intersection(available)
-            didApplyAutomaticRecommendation = false
             startRecommendationAnalysis()
         }
     }
@@ -2023,10 +2019,6 @@ struct LivePhotoCleanView: View {
             let available = Set(assets.map(\.localIdentifier))
             recommendedIDs = ids.intersection(available)
             isLoadingRecommendations = false
-            if !didApplyAutomaticRecommendation && selectedIDs.isEmpty {
-                selectedIDs = recommendedIDs
-                didApplyAutomaticRecommendation = true
-            }
         }
     }
 
@@ -2037,7 +2029,6 @@ struct LivePhotoCleanView: View {
         } else {
             selectedIDs.insert(id)
         }
-        didApplyAutomaticRecommendation = true
     }
 
     private func convertSelected() {
