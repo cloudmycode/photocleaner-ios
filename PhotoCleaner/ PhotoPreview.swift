@@ -1847,13 +1847,13 @@ struct LivePhotoCleanView: View {
     @State private var showConfirmation = false
     @State private var operationError: String?
     @State private var previewAsset: IdentifiablePHAsset?
+    @State private var recommendedIDs = Set<String>()
+    @State private var isLoadingRecommendations = false
+    @State private var didApplyAutomaticRecommendation = false
+    @State private var recommendationTask: Task<Void, Never>?
 
     private var assets: [PHAsset] {
         library.livePhotoAssets.filter { !removedIDs.contains($0.localIdentifier) }
-    }
-
-    private var recommendedIDs: Set<String> {
-        Set(assets.filter(library.shouldRecommendLivePhotoSlimming).map(\.localIdentifier))
     }
 
     private var columns: [GridItem] {
@@ -1904,11 +1904,11 @@ struct LivePhotoCleanView: View {
             ToolbarItem(placement: .automatic) {
                 Button {
                     if selectedIDs.isEmpty {
-                        selectedIDs = recommendedIDs.isEmpty ?
-                            Set(assets.map(\.localIdentifier)) :
-                            recommendedIDs
+                        selectedIDs = recommendedIDs
+                        didApplyAutomaticRecommendation = true
                     } else {
                         selectedIDs.removeAll()
+                        didApplyAutomaticRecommendation = true
                     }
                 } label: {
                     Text(selectedIDs.isEmpty ? "live.select.recommended" : "select.none")
@@ -1916,6 +1916,7 @@ struct LivePhotoCleanView: View {
                         .foregroundStyle(Color.cleanerBlue)
                 }
                 .buttonStyle(.plain)
+                .disabled(selectedIDs.isEmpty && recommendedIDs.isEmpty && isLoadingRecommendations)
             }
         }
         .animatedTabBarHidden()
@@ -1960,17 +1961,19 @@ struct LivePhotoCleanView: View {
         }
         .onAppear {
             library.restoreMediaAssetsIfNeeded()
-            if selectedIDs.isEmpty {
-                selectedIDs = recommendedIDs
-            }
+            startRecommendationAnalysis()
+        }
+        .onDisappear {
+            recommendationTask?.cancel()
+            recommendationTask = nil
         }
         .onChange(of: library.livePhotoAssets.map(\.localIdentifier)) {
             let available = Set(assets.map(\.localIdentifier))
             selectedIDs = selectedIDs.intersection(available)
             removedIDs = removedIDs.intersection(available)
-            if selectedIDs.isEmpty {
-                selectedIDs = recommendedIDs
-            }
+            recommendedIDs = recommendedIDs.intersection(available)
+            didApplyAutomaticRecommendation = false
+            startRecommendationAnalysis()
         }
     }
 
@@ -1999,12 +2002,32 @@ struct LivePhotoCleanView: View {
     private func liveStorageText(for asset: PHAsset) -> String {
         let motionBytes = library.liveMotionBytes(for: asset)
         if motionBytes > 0 {
-            return String.localizedStringWithFormat(
-                String(localized: "live.motion.size.format"),
-                formattedStorage(motionBytes)
-            )
+            return formattedStorage(motionBytes)
         }
         return formattedStorage(library.storageBytes(for: asset))
+    }
+
+    private func startRecommendationAnalysis() {
+        recommendationTask?.cancel()
+        let analysisAssets = assets
+        guard !analysisAssets.isEmpty else {
+            recommendedIDs = []
+            isLoadingRecommendations = false
+            return
+        }
+
+        isLoadingRecommendations = true
+        recommendationTask = Task {
+            let ids = await library.recommendedLivePhotoSlimmingIDs(for: analysisAssets)
+            guard !Task.isCancelled else { return }
+            let available = Set(assets.map(\.localIdentifier))
+            recommendedIDs = ids.intersection(available)
+            isLoadingRecommendations = false
+            if !didApplyAutomaticRecommendation && selectedIDs.isEmpty {
+                selectedIDs = recommendedIDs
+                didApplyAutomaticRecommendation = true
+            }
+        }
     }
 
     private func toggleSelection(_ asset: PHAsset) {
@@ -2014,6 +2037,7 @@ struct LivePhotoCleanView: View {
         } else {
             selectedIDs.insert(id)
         }
+        didApplyAutomaticRecommendation = true
     }
 
     private func convertSelected() {
@@ -4466,6 +4490,8 @@ private struct SimilarGroup: View {
                     }
                 }
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.cleanerBlue)
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
 

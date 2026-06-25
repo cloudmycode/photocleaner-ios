@@ -762,14 +762,23 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         Self.liveMotionStorageBytes(asset)
     }
 
-    nonisolated func shouldRecommendLivePhotoSlimming(for asset: PHAsset) -> Bool {
-        guard asset.mediaSubtypes.contains(.photoLive),
-              !asset.isFavorite else {
-            return false
+    nonisolated func recommendedLivePhotoSlimmingIDs(
+        for assets: [PHAsset]
+    ) async -> Set<String> {
+        var identifiers = Set<String>()
+        identifiers.reserveCapacity(assets.count)
+
+        for (index, asset) in assets.enumerated() {
+            guard !Task.isCancelled else { return identifiers }
+            if await Self.shouldRecommendLivePhotoSlimmingWithVision(for: asset) {
+                identifiers.insert(asset.localIdentifier)
+            }
+            if index.isMultiple(of: 4) {
+                await Task.yield()
+            }
         }
-        let motionBytes = Self.liveMotionStorageBytes(asset)
-        let totalBytes = Self.assetStorageBytes(asset)
-        return motionBytes >= 1_000_000 || Double(motionBytes) >= Double(totalBytes) * 0.35
+
+        return identifiers
     }
 
     func convertLivePhotosToStill(with identifiers: Set<String>) async throws {
@@ -1098,6 +1107,52 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             PHImageManager.default().requestImage(
                 for: asset,
                 targetSize: CGSize(width: 900, height: 900),
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                let degraded = info?[PHImageResultIsDegradedKey] as? Bool ?? false
+                let cancelled = info?[PHImageCancelledKey] as? Bool ?? false
+                guard !resumed, !degraded else { return }
+                resumed = true
+                continuation.resume(returning: cancelled ? nil : image)
+            }
+        }
+    }
+
+    nonisolated private static func shouldRecommendLivePhotoSlimmingWithVision(
+        for asset: PHAsset
+    ) async -> Bool {
+        guard asset.mediaSubtypes.contains(.photoLive),
+              !asset.isFavorite else {
+            return false
+        }
+
+        let motionBytes = liveMotionStorageBytes(asset)
+        let totalBytes = assetStorageBytes(asset)
+        let hasUsefulSaving = motionBytes >= 1_000_000 ||
+            Double(motionBytes) >= Double(totalBytes) * 0.35
+        guard hasUsefulSaving,
+              let image = await requestLiveRecommendationImage(for: asset),
+              let cgImage = image.cgImage else {
+            return false
+        }
+
+        return detectedHumanRects(in: cgImage).isEmpty
+    }
+
+    nonisolated private static func requestLiveRecommendationImage(
+        for asset: PHAsset
+    ) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+
+            var resumed = false
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 480, height: 480),
                 contentMode: .aspectFit,
                 options: options
             ) { image, info in
