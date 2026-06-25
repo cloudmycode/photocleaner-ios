@@ -582,3 +582,139 @@ actor MonthlyAlbumsCache {
         }
     }
 }
+
+struct CachedDetailGroupAsset: Codable {
+    let id: String
+    let signature: String
+    let qualityScore: Double
+    let isBest: Bool
+}
+
+struct CachedDetailGroup: Codable {
+    let assets: [CachedDetailGroupAsset]
+}
+
+enum CachedDetailGroupAssetSignature {
+    static func make(for asset: PHAsset) -> String {
+        [
+            asset.localIdentifier,
+            String(format: "%.3f", asset.creationDate?.timeIntervalSince1970 ?? 0),
+            String(format: "%.3f", asset.modificationDate?.timeIntervalSince1970 ?? 0),
+            String(asset.pixelWidth),
+            String(asset.pixelHeight),
+            String(asset.mediaType.rawValue),
+            String(asset.mediaSubtypes.rawValue),
+            asset.isFavorite ? "1" : "0"
+        ].joined(separator: ":")
+    }
+}
+
+actor DetailGroupCache {
+    private struct Payload: Codable {
+        let version: Int
+        let duplicateGroups: [CachedDetailGroup]
+        let burstGroups: [CachedDetailGroup]
+    }
+
+    private let algorithmVersion = 1
+    private let fileURL: URL
+    private var payload: Payload?
+
+    init() {
+        let baseURL = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first!
+        let directory = baseURL.appendingPathComponent(
+            "DetailGroups",
+            isDirectory: true
+        )
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        fileURL = directory.appendingPathComponent("groups.json")
+    }
+
+    func loadDuplicateGroups() -> [CachedDetailGroup] {
+        loadIfNeeded()
+        return payload?.duplicateGroups ?? []
+    }
+
+    func loadBurstGroups() -> [CachedDetailGroup] {
+        loadIfNeeded()
+        return payload?.burstGroups ?? []
+    }
+
+    func saveDuplicateGroups(_ groups: [SimilarAssetGroup]) throws {
+        loadIfNeeded()
+        let nextPayload = Payload(
+            version: algorithmVersion,
+            duplicateGroups: groups.map(Self.cachedGroup),
+            burstGroups: payload?.burstGroups ?? []
+        )
+        try save(nextPayload)
+    }
+
+    func saveBurstGroups(_ groups: [SimilarAssetGroup]) throws {
+        loadIfNeeded()
+        let nextPayload = Payload(
+            version: algorithmVersion,
+            duplicateGroups: payload?.duplicateGroups ?? [],
+            burstGroups: groups.map(Self.cachedGroup)
+        )
+        try save(nextPayload)
+    }
+
+    func hasAnyCachedGroups() -> Bool {
+        loadIfNeeded()
+        return !(payload?.duplicateGroups.isEmpty ?? true) ||
+            !(payload?.burstGroups.isEmpty ?? true)
+    }
+
+    func clear() throws {
+        payload = nil
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
+    func sizeInBytes() -> Int64 {
+        guard let attributes = try? FileManager.default.attributesOfItem(
+            atPath: fileURL.path
+        ) else {
+            return 0
+        }
+        return attributes[.size] as? Int64 ?? 0
+    }
+
+    private func loadIfNeeded() {
+        guard payload == nil else { return }
+        guard let data = try? Data(contentsOf: fileURL),
+              let stored = try? JSONDecoder().decode(Payload.self, from: data),
+              stored.version == algorithmVersion else {
+            payload = Payload(version: algorithmVersion, duplicateGroups: [], burstGroups: [])
+            return
+        }
+        payload = stored
+    }
+
+    private func save(_ nextPayload: Payload) throws {
+        let data = try JSONEncoder().encode(nextPayload)
+        try data.write(to: fileURL, options: .atomic)
+        payload = nextPayload
+    }
+
+    private static func cachedGroup(from group: SimilarAssetGroup) -> CachedDetailGroup {
+        CachedDetailGroup(
+            assets: group.assets.map { asset in
+                CachedDetailGroupAsset(
+                    id: asset.id,
+                    signature: CachedDetailGroupAssetSignature.make(for: asset.asset),
+                    qualityScore: asset.qualityScore,
+                    isBest: asset.isBest
+                )
+            }
+        )
+    }
+}

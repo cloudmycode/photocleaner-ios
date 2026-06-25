@@ -185,10 +185,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private let searchIndexStore = PhotoSearchIndexStore.shared
     private let monthlyReviewStore = MonthlyReviewStore()
     private let monthlyAlbumsCache = MonthlyAlbumsCache()
+    private let detailGroupCache = DetailGroupCache()
     private var scanTask: Task<Void, Never>?
     private var searchIndexTask: Task<Void, Never>?
     private var libraryChangeDebounce: Task<Void, Never>?
     private var hasRequestedStartupScan = false
+    private var hasScheduledDetailGroupWarmup = false
     private var isRestoringCachedDuplicates = false
     private var isRestoringCachedBursts = false
     private var didAttemptCachedDuplicateRestore = false
@@ -229,6 +231,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             hasRequestedStartupScan = true
             if hasCompletedInitialAnalysis {
                 refreshSearchIndexInBackground()
+                warmDetailGroupsIfNeeded()
                 if shouldRepairCachedMediaStorage {
                     shouldRepairCachedMediaStorage = false
                     refreshLibrary()
@@ -450,9 +453,11 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             let duplicateCacheComplete = await restoreDuplicateGroupsFromCache(
                 in: snapshot.imageAssets
             )
+            await persistDuplicateDetailGroups()
             persistHomeSummary()
             if !duplicateCacheComplete {
                 await scanDuplicates(in: snapshot.imageAssets)
+                await persistDuplicateDetailGroups()
                 persistHomeSummary()
             }
 
@@ -464,7 +469,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             if burstCacheComplete {
                 analysisCacheSize = await analysisCache.sizeInBytes() +
                     duplicateCache.sizeInBytes() +
-                    searchIndexStore.sizeInBytes()
+                    searchIndexStore.sizeInBytes() +
+                    detailGroupCache.sizeInBytes()
+                await persistBurstDetailGroups()
                 persistHomeSummary()
                 markInitialAnalysisComplete()
                 scanState = .finished
@@ -509,7 +516,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             try? await analysisCache.replace(with: activeCache)
             analysisCacheSize = await analysisCache.sizeInBytes() +
                 duplicateCache.sizeInBytes() +
-                searchIndexStore.sizeInBytes()
+                searchIndexStore.sizeInBytes() +
+                detailGroupCache.sizeInBytes()
+            await persistBurstDetailGroups()
             persistHomeSummary()
             markInitialAnalysisComplete()
             scanState = .finished
@@ -616,17 +625,23 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let assets = await Task.detached(priority: .utility) {
-                Self.fetchImageAssets()
-            }.value
-            guard !Task.isCancelled else {
-                isRestoringCachedDuplicates = false
-                return
-            }
-            _ = await restoreDuplicateGroupsFromCache(
-                in: assets,
+            let restoredFromDetailCache = await restoreDuplicateGroupsFromDetailCache(
                 updateSummaryCounts: false
             )
+            if !restoredFromDetailCache {
+                let assets = await Task.detached(priority: .utility) {
+                    Self.fetchImageAssets()
+                }.value
+                guard !Task.isCancelled else {
+                    isRestoringCachedDuplicates = false
+                    return
+                }
+                _ = await restoreDuplicateGroupsFromCache(
+                    in: assets,
+                    updateSummaryCounts: false
+                )
+                await persistDuplicateDetailGroups()
+            }
             isRestoringCachedDuplicates = false
         }
     }
@@ -644,22 +659,28 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let candidates = await Task.detached(priority: .utility) {
-                let assets = Self.fetchImageAssets()
-                return Self.continuousShotCandidateGroups(
-                    assets: assets,
-                    maximumAdjacentInterval: Self.fallbackShotInterval,
-                    maximumSequenceDuration: Self.fallbackSequenceDuration
-                )
-            }.value
-            guard !Task.isCancelled else {
-                isRestoringCachedBursts = false
-                return
-            }
-            _ = await restoreBurstGroupsFromCache(
-                candidates: candidates,
+            let restoredFromDetailCache = await restoreBurstGroupsFromDetailCache(
                 updateSummaryCounts: false
             )
+            if !restoredFromDetailCache {
+                let candidates = await Task.detached(priority: .utility) {
+                    let assets = Self.fetchImageAssets()
+                    return Self.continuousShotCandidateGroups(
+                        assets: assets,
+                        maximumAdjacentInterval: Self.fallbackShotInterval,
+                        maximumSequenceDuration: Self.fallbackSequenceDuration
+                    )
+                }.value
+                guard !Task.isCancelled else {
+                    isRestoringCachedBursts = false
+                    return
+                }
+                _ = await restoreBurstGroupsFromCache(
+                    candidates: candidates,
+                    updateSummaryCounts: false
+                )
+                await persistBurstDetailGroups()
+            }
             isRestoringCachedBursts = false
         }
     }
@@ -996,6 +1017,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     func clearAnalysisCache() {
         scanTask?.cancel()
         searchIndexTask?.cancel()
+        hasScheduledDetailGroupWarmup = false
         didAttemptCachedDuplicateRestore = false
         didAttemptCachedBurstRestore = false
         hasCompletedInitialAnalysis = false
@@ -1006,6 +1028,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             try? await duplicateCache.clear()
             try? await searchIndexStore.clear()
             try? await monthlyAlbumsCache.clear()
+            try? await detailGroupCache.clear()
             analysisCacheSize = 0
             scanState = .idle
         }
@@ -1023,11 +1046,43 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         }
     }
 
+    private func warmDetailGroupsIfNeeded() {
+        guard hasCompletedInitialAnalysis,
+              !hasScheduledDetailGroupWarmup else {
+            return
+        }
+        hasScheduledDetailGroupWarmup = true
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let hasCachedGroups = await detailGroupCache.hasAnyCachedGroups()
+            guard !hasCachedGroups else { return }
+
+            let assets = Self.fetchImageAssets()
+            _ = await restoreDuplicateGroupsFromCache(
+                in: assets,
+                updateSummaryCounts: false
+            )
+            await persistDuplicateDetailGroups()
+
+            let candidates = Self.continuousShotCandidateGroups(
+                assets: assets,
+                maximumAdjacentInterval: Self.fallbackShotInterval,
+                maximumSequenceDuration: Self.fallbackSequenceDuration
+            )
+            _ = await restoreBurstGroupsFromCache(
+                candidates: candidates,
+                updateSummaryCounts: false
+            )
+            await persistBurstDetailGroups()
+        }
+    }
+
     private func rebuildSearchIndexMetadata(for assets: [PHAsset]) async {
         try? await searchIndexStore.rebuildMetadata(for: assets)
         analysisCacheSize = await analysisCache.sizeInBytes() +
             duplicateCache.sizeInBytes() +
-            searchIndexStore.sizeInBytes()
+            searchIndexStore.sizeInBytes() +
+            detailGroupCache.sizeInBytes()
     }
 
     private func startSearchOCRIndexing(for assets: [PHAsset]) {
@@ -1422,6 +1477,17 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         return cached.count == assets.count
     }
 
+    private func restoreDuplicateGroupsFromDetailCache(
+        updateSummaryCounts: Bool = true
+    ) async -> Bool {
+        let cachedGroups = await detailGroupCache.loadDuplicateGroups()
+        guard !cachedGroups.isEmpty else { return false }
+        let groups = Self.restoreDetailGroups(from: cachedGroups)
+        guard !groups.isEmpty else { return false }
+        applyDuplicateGroups(groups, updateSummaryCounts: updateSummaryCounts)
+        return groups.count == cachedGroups.count
+    }
+
     private func restoreBurstGroupsFromCache(
         candidates: [[PHAsset]],
         updateSummaryCounts: Bool = true
@@ -1457,6 +1523,23 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             burstCandidateStorageBytes = Self.cleanableStorageBytes(in: burstGroups)
         }
         return !hasMissingCache
+    }
+
+    private func restoreBurstGroupsFromDetailCache(
+        updateSummaryCounts: Bool = true
+    ) async -> Bool {
+        let cachedGroups = await detailGroupCache.loadBurstGroups()
+        guard !cachedGroups.isEmpty else { return false }
+        let groups = Self.restoreDetailGroups(from: cachedGroups)
+        guard !groups.isEmpty else { return false }
+        burstGroups = groups.sorted {
+            ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+        }
+        if updateSummaryCounts {
+            burstCandidateCount = Self.cleanableCount(in: burstGroups)
+            burstCandidateStorageBytes = Self.cleanableStorageBytes(in: burstGroups)
+        }
+        return groups.count == cachedGroups.count
     }
 
     private func scanDuplicates(in assets: [PHAsset]) async {
@@ -1508,6 +1591,14 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         )
         try? await duplicateCache.replace(with: activeCache)
         duplicateScanProgress = nil
+    }
+
+    private func persistDuplicateDetailGroups() async {
+        try? await detailGroupCache.saveDuplicateGroups(duplicateGroups)
+    }
+
+    private func persistBurstDetailGroups() async {
+        try? await detailGroupCache.saveBurstGroups(burstGroups)
     }
 
     private func applyDuplicateGroups(
@@ -2153,6 +2244,46 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 )
             } ?? []
         )
+    }
+
+    nonisolated private static func restoreDetailGroups(
+        from cachedGroups: [CachedDetailGroup]
+    ) -> [SimilarAssetGroup] {
+        let localIdentifiers = Array(
+            Set(cachedGroups.flatMap { $0.assets.map(\.id) })
+        )
+        guard !localIdentifiers.isEmpty else { return [] }
+
+        let result = PHAsset.fetchAssets(
+            withLocalIdentifiers: localIdentifiers,
+            options: nil
+        )
+        var assetsByID: [String: PHAsset] = [:]
+        assetsByID.reserveCapacity(result.count)
+        result.enumerateObjects { asset, _, _ in
+            assetsByID[asset.localIdentifier] = asset
+        }
+
+        return cachedGroups.compactMap { cachedGroup in
+            let restoredAssets = cachedGroup.assets.compactMap { item -> SimilarAsset? in
+                guard let asset = assetsByID[item.id],
+                      CachedDetailGroupAssetSignature.make(for: asset) == item.signature else {
+                    return nil
+                }
+                return SimilarAsset(
+                    id: item.id,
+                    asset: asset,
+                    qualityScore: item.qualityScore,
+                    isBest: item.isBest
+                )
+            }
+            guard restoredAssets.count >= 2 else { return nil }
+            return SimilarAssetGroup(
+                id: restoredAssets.map(\.id).sorted().joined(separator: "|"),
+                assets: restoredAssets,
+                creationDate: restoredAssets.compactMap(\.asset.creationDate).min()
+            )
+        }
     }
 
     nonisolated private static func continuousShotCandidateGroups(
