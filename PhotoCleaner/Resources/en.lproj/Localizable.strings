@@ -99,6 +99,10 @@
 "settings.keep.original" = "Keep original videos";
 "settings.general.security" = "General & Security";
 "settings.clear.cache" = "Clear cache";
+"settings.smart.search.export" = "Export Smart Search Index";
+"settings.smart.search.export.value" = "JSON";
+"settings.smart.search.export.in.progress" = "Exporting";
+"settings.smart.search.export.failed.title" = "Export Failed";
 "settings.support" = "Support & About";
 "settings.email" = "Email";
 "settings.rate" = "Rate us";

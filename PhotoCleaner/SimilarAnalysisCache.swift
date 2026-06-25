@@ -19,6 +19,36 @@ struct PhotoSearchIndexEntry: Codable {
     var ocrIndexedAt: Date?
 }
 
+struct PhotoSearchDebugExport: Codable {
+    let exportedAt: Date
+    let algorithmVersion: Int
+    let assetCount: Int
+    let indexedAssetCount: Int
+    let missingVisualTagCount: Int
+    let missingOCRCount: Int
+    let searchInputs: [String]
+    let entries: [PhotoSearchDebugExportEntry]
+}
+
+struct PhotoSearchDebugExportEntry: Codable {
+    let localIdentifier: String
+    let filename: String?
+    let signature: String
+    let hasValidIndex: Bool
+    let mediaType: String
+    let assetTypes: [String]
+    let creationDate: Date?
+    let latitude: Double?
+    let longitude: Double?
+    let pixelWidth: Int
+    let pixelHeight: Int
+    let storageBytes: Int64
+    let visualTags: [String]
+    let visualIndexedAt: Date?
+    let ocrText: String?
+    let ocrIndexedAt: Date?
+}
+
 actor PhotoSearchIndexStore {
     private struct Payload: Codable {
         let version: Int
@@ -159,6 +189,82 @@ actor PhotoSearchIndexStore {
         return attributes[.size] as? Int64 ?? 0
     }
 
+    func exportDebugSnapshot(for assets: [PHAsset]) throws -> URL {
+        loadIfNeeded()
+
+        let rows = assets.map { asset -> PhotoSearchDebugExportEntry in
+            let signature = Self.signature(for: asset)
+            let current = currentEntry(for: asset, signature: signature)
+            let entry = current ?? Self.entry(
+                for: asset,
+                signature: signature,
+                previousVisualTags: nil,
+                previousVisualIndexedAt: nil,
+                previousOCRText: nil,
+                previousOCRIndexedAt: nil
+            )
+
+            return PhotoSearchDebugExportEntry(
+                localIdentifier: asset.localIdentifier,
+                filename: PHAssetResource.assetResources(for: asset).first?.originalFilename,
+                signature: signature,
+                hasValidIndex: current != nil,
+                mediaType: entry.mediaType,
+                assetTypes: entry.assetTypes,
+                creationDate: entry.creationDate,
+                latitude: entry.latitude,
+                longitude: entry.longitude,
+                pixelWidth: entry.pixelWidth,
+                pixelHeight: entry.pixelHeight,
+                storageBytes: entry.storageBytes,
+                visualTags: entry.visualTags ?? [],
+                visualIndexedAt: entry.visualIndexedAt,
+                ocrText: entry.ocrText,
+                ocrIndexedAt: entry.ocrIndexedAt
+            )
+        }
+
+        let export = PhotoSearchDebugExport(
+            exportedAt: Date(),
+            algorithmVersion: algorithmVersion,
+            assetCount: rows.count,
+            indexedAssetCount: rows.count { $0.hasValidIndex },
+            missingVisualTagCount: rows.count { $0.visualTags.isEmpty },
+            missingOCRCount: rows.count {
+                ($0.ocrText ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+            },
+            searchInputs: [
+                "visualTags",
+                "ocrText",
+                "creationDate",
+                "location",
+                "mediaType",
+                "assetTypes",
+                "storageBytes"
+            ],
+            entries: rows
+        )
+
+        let exportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PhotoSearchDebugExports", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: exportDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let fileURL = exportDirectory.appendingPathComponent(
+            "smart-search-index-\(Self.exportTimestampString(export.exportedAt)).json"
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(export)
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
     private func loadIfNeeded() {
         guard entries == nil else { return }
         guard let data = try? Data(contentsOf: fileURL),
@@ -256,6 +362,15 @@ actor PhotoSearchIndexStore {
             types.append("screen_recording")
         }
         return types
+    }
+
+    private static func exportTimestampString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        return formatter.string(from: date)
     }
 
     private static func signature(for asset: PHAsset) -> String {

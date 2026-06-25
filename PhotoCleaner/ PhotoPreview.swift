@@ -4,6 +4,7 @@ import Photos
 import PhotosUI
 import Speech
 import SwiftUI
+import UIKit
 import Vision
 
 struct ContentView: View {
@@ -2839,7 +2840,6 @@ struct SmartPhotoSearchView: View {
     @StateObject private var speech = PhotoSearchSpeechInput()
 
     @State private var queryText = ""
-    @State private var parsedQuery: PhotoSearchQuery?
     @State private var results: [PHAsset] = []
     @State private var isParsing = false
     @State private var isSearching = false
@@ -2847,19 +2847,13 @@ struct SmartPhotoSearchView: View {
     @State private var previewAsset: IdentifiablePHAsset?
     @State private var didStartPress = false
 
-    private let parser = CloudPhotoSearchParser()
+    private let parser = KeywordSearchParser()
 
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
                 CleanerHeader(title: String(localized: "tab.smart.search"))
                     .padding(.top, 18)
-
-                if let parsedQuery {
-                    CleanerSection(title: String(localized: "smart.search.understood")) {
-                        SearchUnderstandingView(query: parsedQuery)
-                    }
-                }
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -2883,7 +2877,7 @@ struct SmartPhotoSearchView: View {
             queryText = speech.transcript
         }
         .alert("smart.search.network.title", isPresented: Binding(
-            get: { errorMessage != nil && parsedQuery == nil },
+            get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) {}
@@ -2908,7 +2902,7 @@ struct SmartPhotoSearchView: View {
                     Image(systemName: "photo.stack")
                         .font(.system(size: 34, weight: .semibold))
                         .foregroundStyle(Color.cleanerBlue)
-                    Text(parsedQuery == nil ? "smart.search.empty.idle" : "smart.search.empty.results")
+                    Text(queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "smart.search.empty.idle" : "smart.search.empty.results")
                         .font(.subheadline.weight(.semibold))
                     Text("smart.search.empty.description")
                         .font(.caption)
@@ -3001,7 +2995,7 @@ struct SmartPhotoSearchView: View {
     }
 
     private var resultsTitle: String {
-        if parsedQuery == nil {
+        if results.isEmpty {
             return String(localized: "smart.search.results")
         }
         return String.localizedStringWithFormat(
@@ -3044,15 +3038,13 @@ struct SmartPhotoSearchView: View {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isParsing else { return }
         errorMessage = nil
-        parsedQuery = nil
         results = []
         isParsing = true
         Task {
             do {
-                let query = try await parser.parse(text)
-                parsedQuery = query
+                let keywords = try await parser.parse(text)
                 isParsing = false
-                runSearch(query)
+                runSearch(keywords)
             } catch {
                 isParsing = false
                 isSearching = false
@@ -3061,70 +3053,12 @@ struct SmartPhotoSearchView: View {
         }
     }
 
-    private func runSearch(_ query: PhotoSearchQuery) {
+    private func runSearch(_ keywords: [String]) {
         isSearching = true
         Task {
-            let assets = await PhotoSearchEngine.search(query)
+            let assets = await PhotoSearchEngine.search(keywords: keywords)
             results = assets
             isSearching = false
-        }
-    }
-}
-
-private struct SearchUnderstandingView: View {
-    let query: PhotoSearchQuery
-
-    var body: some View {
-        FlowLayout(spacing: 8) {
-            ForEach(query.displayChips, id: \.self) { chip in
-                Text(chip)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.cleanerBlue)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color.cleanerBlue.opacity(0.12), in: Capsule())
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-    }
-}
-
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 0
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-        }
-        return CGSize(width: width, height: y + rowHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var rowHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
     }
 }
@@ -3198,500 +3132,66 @@ private final class PhotoSearchSpeechInput: NSObject, ObservableObject {
     }
 }
 
-private struct PhotoSearchQuery: Decodable {
-    var summary: String?
-    var mediaTypes: [String]?
-    var assetTypes: [String]?
-    var dateRange: DateRange?
-    var locations: [String]?
-    var locationBounds: [LocationBounds]?
-    var minSizeMB: Double?
-    var maxSizeMB: Double?
-    var hasLocation: Bool?
-    var keywords: [String]?
-    var visualTags: [String]?
-    var visualConcepts: [VisualConcept]?
-    var ocrKeywords: [String]?
-    var ocrRegexes: [String]?
-    var sensitiveTypes: [String]?
-    var requiresOCR: Bool?
-    var rawText: String?
-
-    struct DateRange: Decodable {
-        var start: String?
-        var end: String?
-    }
-
-    struct LocationBounds: Decodable {
-        var name: String?
-        var minLatitude: Double
-        var maxLatitude: Double
-        var minLongitude: Double
-        var maxLongitude: Double
-    }
-
-    struct VisualConcept: Decodable {
-        var name: String?
-        var matchAny: [String]
-    }
-
-    var displayChips: [String] {
-        var chips: [String] = []
-        if let summary, !summary.isEmpty { chips.append(summary) }
-        chips.append(contentsOf: (mediaTypes ?? []).map(Self.mediaTypeLabel))
-        chips.append(contentsOf: (assetTypes ?? []).map(Self.assetTypeLabel))
-        if let start = dateRange?.start, let end = dateRange?.end {
-            chips.append("\(start) - \(end)")
-        } else if let start = dateRange?.start {
-            chips.append(">= \(start)")
-        } else if let end = dateRange?.end {
-            chips.append("<= \(end)")
-        }
-        chips.append(contentsOf: locations ?? [])
-        if let minSizeMB { chips.append(String(format: ">= %.0f MB", minSizeMB)) }
-        if let maxSizeMB { chips.append(String(format: "<= %.0f MB", maxSizeMB)) }
-        if let hasLocation {
-            chips.append(String(localized: hasLocation ? "smart.search.has.location" : "smart.search.no.location"))
-        }
-        chips.append(contentsOf: (sensitiveTypes ?? []).map(Self.sensitiveTypeLabel))
-        chips.append(contentsOf: effectiveVisualTags.map(Self.visualTagLabel))
-        chips.append(contentsOf: effectiveVisualConcepts.compactMap(\.name))
-        chips.append(contentsOf: (ocrKeywords ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.keyword.format"), $0) })
-        chips.append(contentsOf: (ocrRegexes ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.regex.format"), $0) })
-        chips.append(contentsOf: (keywords ?? []).map { "#\($0)" })
-        return chips.isEmpty ? [String(localized: "smart.search.understood.default")] : chips
-    }
-
-    private static func mediaTypeLabel(_ type: String) -> String {
-        switch type.lowercased() {
-        case "image", "photo":
-            return String(localized: "smart.search.type.image")
-        case "video":
-            return String(localized: "smart.search.type.video")
-        default:
-            return type
-        }
-    }
-
-    private static func assetTypeLabel(_ type: String) -> String {
-        switch type.lowercased() {
-        case "screenshot":
-            return String(localized: "smart.search.asset.screenshot")
-        case "live", "livephoto", "live_photo":
-            return String(localized: "smart.search.asset.live")
-        case "screenrecording", "screen_recording":
-            return String(localized: "smart.search.asset.screen_recording")
-        default:
-            return type
-        }
-    }
-
-    private static func sensitiveTypeLabel(_ type: String) -> String {
-        switch type.lowercased() {
-        case "bank_card", "bankcard", "credit_card":
-            return String(localized: "smart.search.sensitive.bank_card")
-        case "id_card", "identity_card", "identity_document":
-            return String(localized: "smart.search.sensitive.id_card")
-        case "passport":
-            return String(localized: "smart.search.sensitive.passport")
-        case "document", "certificate", "receipt", "invoice":
-            return String(localized: "smart.search.sensitive.document")
-        default:
-            return type
-        }
-    }
-
-    var effectiveVisualTags: [String] {
-        Array(Set((visualTags ?? []) + Self.inferredVisualTags(from: rawText))).sorted()
-    }
-
-    var effectiveVisualConcepts: [VisualConcept] {
-        visualConcepts?.filter { !$0.matchAny.isEmpty } ?? []
-    }
-
-    private static func visualTagLabel(_ tag: String) -> String {
-        switch tag.lowercased() {
-        case "person", "people", "human":
-            return String(localized: "smart.search.visual.person")
-        case "red_clothing":
-            return String(localized: "smart.search.visual.red_clothing")
-        case "blue_clothing":
-            return String(localized: "smart.search.visual.blue_clothing")
-        case "white_clothing":
-            return String(localized: "smart.search.visual.white_clothing")
-        case "black_clothing":
-            return String(localized: "smart.search.visual.black_clothing")
-        case "yellow_clothing":
-            return String(localized: "smart.search.visual.yellow_clothing")
-        case "green_clothing":
-            return String(localized: "smart.search.visual.green_clothing")
-        case "car", "vehicle":
-            return String(localized: "smart.search.visual.car")
-        case "food":
-            return String(localized: "smart.search.visual.food")
-        case "beach", "sea", "ocean":
-            return String(localized: "smart.search.visual.beach")
-        case "dog":
-            return String(localized: "smart.search.visual.dog")
-        case "cat":
-            return String(localized: "smart.search.visual.cat")
-        case "pet", "animal":
-            return String(localized: "smart.search.visual.pet")
-        case "building", "architecture":
-            return String(localized: "smart.search.visual.building")
-        case "sky":
-            return String(localized: "smart.search.visual.sky")
-        case "flower", "plant":
-            return String(localized: "smart.search.visual.flower")
-        default:
-            return "#\(tag)"
-        }
-    }
-
-    private static func inferredVisualTags(from rawText: String?) -> [String] {
-        let text = rawText ?? ""
-        let normalized = text
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .replacingOccurrences(of: " ", with: "")
-            .lowercased()
-        var tags: [String] = []
-        if normalized.contains("人") ||
-            normalized.contains("女生") ||
-            normalized.contains("女孩") ||
-            normalized.contains("男生") ||
-            normalized.contains("小孩") ||
-            normalized.contains("person") ||
-            normalized.contains("people") ||
-            normalized.contains("girl") ||
-            normalized.contains("boy") {
-            tags.append("person")
-        }
-        for item in visualKeywordMap where item.keywords.contains(where: { normalized.contains($0) }) {
-            tags.append(item.tag)
-        }
-        for item in [
-            ("红", "red"),
-            ("红色", "red"),
-            ("red", "red"),
-            ("蓝", "blue"),
-            ("蓝色", "blue"),
-            ("blue", "blue"),
-            ("白", "white"),
-            ("白色", "white"),
-            ("white", "white"),
-            ("黑", "black"),
-            ("黑色", "black"),
-            ("black", "black"),
-            ("黄", "yellow"),
-            ("黄色", "yellow"),
-            ("yellow", "yellow"),
-            ("绿", "green"),
-            ("绿色", "green"),
-            ("green", "green")
-        ] where normalized.contains(item.0) {
-            if normalized.contains("衣") ||
-                normalized.contains("衣服") ||
-                normalized.contains("上衣") ||
-                normalized.contains("裙") ||
-                normalized.contains("穿") ||
-                normalized.contains("clothing") ||
-                normalized.contains("shirt") ||
-                normalized.contains("dress") {
-                tags.append("\(item.1)_clothing")
-            } else {
-                tags.append(item.1)
-            }
-        }
-        return Array(Set(tags))
-    }
-
-    private static var visualKeywordMap: [(tag: String, keywords: [String])] {
-        [
-            ("car", ["车", "汽车", "车辆", "轿车", "停车", "car", "vehicle", "auto"]),
-            ("food", ["食物", "美食", "吃的", "饭", "菜", "餐", "food", "meal", "dish"]),
-            ("beach", ["海边", "海滩", "沙滩", "大海", "海", "beach", "sea", "ocean"]),
-            ("dog", ["狗", "小狗", "dog"]),
-            ("cat", ["猫", "小猫", "cat"]),
-            ("pet", ["宠物", "pet", "animal"]),
-            ("building", ["建筑", "楼", "房子", "大楼", "building", "architecture", "house"]),
-            ("sky", ["天空", "蓝天", "sky"]),
-            ("flower", ["花", "植物", "flower", "plant"]),
-            ("document", ["文档", "合同", "票据", "证件", "document", "receipt", "invoice"])
-        ]
-    }
+private struct KeywordSearchResponse: Decodable {
+    let keywords: [String]
 }
 
-private struct CloudPhotoSearchParser {
-    func parse(_ text: String) async throws -> PhotoSearchQuery {
+private struct KeywordSearchParser {
+    func parse(_ text: String) async throws -> [String] {
         guard let endpoint = Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseEndpoint") as? String,
               let url = URL(string: endpoint),
               !endpoint.isEmpty else {
             throw URLError(.notConnectedToInternet)
         }
-        let apiKey = Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseAPIKey") as? String
-        let model = (Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseModel") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentDate = Self.currentDateString()
 
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
-        let body = OpenAIChatRequest(
-            model: model?.isEmpty == false ? model! : "gpt-4o-mini",
-            messages: [
-                .init(role: "system", content: Self.systemPrompt),
-                .init(
-                    role: "user",
-                    content: """
-                    Query: \(trimmedText)
-                    Locale: \(Locale.current.identifier)
-                    Timezone: \(TimeZone.current.identifier)
-                    Current date: \(currentDate)
-                    """
-                )
-            ],
-            temperature: 0,
-            responseFormat: .init(type: "json_object")
+        request.httpBody = try JSONEncoder().encode(
+            KeywordSearchRequest(
+                query: trimmedText,
+                locale: Locale.current.identifier
+            )
         )
-        request.httpBody = try JSONEncoder().encode(body)
+
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-        let chatResponse = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
-        guard let content = chatResponse.choices.first?.message.content,
-              let queryData = Self.jsonData(from: content) else {
-            throw URLError(.cannotParseResponse)
-        }
-        var query = try JSONDecoder().decode(PhotoSearchQuery.self, from: queryData)
-        query.rawText = text
-        return query
+
+        let parsed = try JSONDecoder().decode(KeywordSearchResponse.self, from: data)
+        return parsed.keywords
     }
 
-    private static let systemPrompt = """
-    You parse photo search requests for an iOS photo cleaner app.
-    Return only valid JSON, no Markdown.
-    Schema:
-    {
-      "summary": "short user-facing summary",
-      "mediaTypes": ["image" | "video"],
-      "assetTypes": ["screenshot" | "live" | "screen_recording"],
-      "dateRange": {"start": "yyyy-MM-dd", "end": "yyyy-MM-dd"},
-      "locations": ["place names"],
-      "locationBounds": [{"name":"", "minLatitude":0, "maxLatitude":0, "minLongitude":0, "maxLongitude":0}],
-      "minSizeMB": 0,
-      "maxSizeMB": 0,
-      "hasLocation": true,
-      "keywords": [],
-      "visualTags": ["person", "red_clothing", "blue_clothing", "white_clothing", "black_clothing", "yellow_clothing", "green_clothing", "car", "food", "beach", "dog", "cat", "pet", "building", "sky", "flower", "document"],
-      "visualConcepts": [{"name": "concept name in user's language", "matchAny": ["english_vision_label", "synonym"]}],
-      "ocrKeywords": [],
-      "ocrRegexes": [],
-      "sensitiveTypes": ["bank_card", "id_card", "passport", "document"],
-      "requiresOCR": false
-    }
-    Omit unknown fields. Photos never leave the device; use OCR fields for text on images.
-    Resolve relative dates like today, yesterday, last year, and last month from the provided Current date.
-    If the user says photos, pictures, or images, set mediaTypes to ["image"]. If the user says videos or recordings, set mediaTypes to ["video"].
-    Only set hasLocation when the user explicitly asks for photos with location information or without location information. Do not set hasLocation for visual scenes like beach, sea, mountains, or city.
-    For visual object searches without an explicit media type, prefer mediaTypes ["image"].
-    For open-ended visual requests, return visualConcepts. Each visualConcept represents one required concept; matchAny contains English Vision-style labels and synonyms. Concepts are ANDed together, labels inside matchAny are ORed.
-    Example: "catching crabs" should include {"name":"抓螃蟹","matchAny":["crab","shellfish","seafood"]}. Add only concepts that are likely visible in the image.
-    For card tail-number queries, set requiresOCR true and use a regex that matches the number inside OCR text, not only at the end of the whole text; for example tail number 124 should use "\\d{0,15}124\\b".
-    visualTags must contain only the allowed English enum values from the schema, never Chinese words.
-    For people clothing queries, use person plus color_clothing. Do not infer gender as a required tag.
-    """
-
-    private static func currentDateString() -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
-    }
-
-    private static func jsonData(from content: String) -> Data? {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let data = trimmed.data(using: .utf8),
-           (try? JSONSerialization.jsonObject(with: data)) != nil {
-            return data
-        }
-        guard let start = trimmed.firstIndex(of: "{"),
-              let end = trimmed.lastIndex(of: "}"),
-              start <= end else {
-            return nil
-        }
-        let json = String(trimmed[start...end])
-        return json.data(using: .utf8)
-    }
-
-    private struct OpenAIChatRequest: Encodable {
-        let model: String
-        let messages: [Message]
-        let temperature: Double
-        let responseFormat: ResponseFormat
-
-        enum CodingKeys: String, CodingKey {
-            case model
-            case messages
-            case temperature
-            case responseFormat = "response_format"
-        }
-
-        struct Message: Encodable {
-            let role: String
-            let content: String
-        }
-
-        struct ResponseFormat: Encodable {
-            let type: String
-        }
-    }
-
-    private struct OpenAIChatResponse: Decodable {
-        let choices: [Choice]
-
-        struct Choice: Decodable {
-            let message: Message
-        }
-
-        struct Message: Decodable {
-            let content: String
-        }
+    private struct KeywordSearchRequest: Encodable {
+        let query: String
+        let locale: String
     }
 }
 
 private enum PhotoSearchEngine {
-    static func search(_ query: PhotoSearchQuery) async -> [PHAsset] {
-        let assets = fetchAssets(for: query)
-        let indexedEntries = await PhotoSearchIndexStore.shared.validEntries(for: assets)
-        let startDate = parseDate(query.dateRange?.start, endOfDay: false)
-        let endDate = parseDate(query.dateRange?.end, endOfDay: true)
-        let bounds = allLocationBounds(for: query)
-        let minBytes = query.minSizeMB.map { Int64($0 * 1_000_000) }
-        let maxBytes = query.maxSizeMB.map { Int64($0 * 1_000_000) }
-        let visualTags = query.effectiveVisualTags
-        let visualConcepts = query.effectiveVisualConcepts
+    static func search(keywords: [String]) async -> [PHAsset] {
+        let normalizedKeywords = keywords
+            .map(normalizeVisualTag)
+            .filter { !$0.isEmpty }
+        guard !normalizedKeywords.isEmpty else { return [] }
 
-        let metadataMatches = assets.filter { asset in
-            let entry = indexedEntries[asset.localIdentifier]
-            let creationDate = entry?.creationDate ?? asset.creationDate
-            if let startDate, (creationDate ?? .distantPast) < startDate { return false }
-            if let endDate, (creationDate ?? .distantFuture) > endDate { return false }
-            if let hasLocation = query.hasLocation {
-                let assetHasLocation = locationCoordinate(for: asset, entry: entry) != nil
-                if assetHasLocation != hasLocation { return false }
-            }
-            if !bounds.isEmpty {
-                guard let coordinate = locationCoordinate(for: asset, entry: entry),
-                      bounds.contains(where: { $0.contains(coordinate) }) else {
-                    return false
-                }
-            }
-            if let assetTypes = query.assetTypes,
-               !assetTypes.isEmpty,
-               !matchesAssetTypes(asset, entry: entry, assetTypes) {
-                return false
-            }
-            if minBytes != nil || maxBytes != nil {
-                let bytes = entry?.storageBytes ?? storageBytes(asset)
-                if let minBytes, bytes < minBytes { return false }
-                if let maxBytes, bytes > maxBytes { return false }
-            }
-            if !visualTags.isEmpty,
-               !matchesVisualTags(visualTags, entry: entry) {
-                return false
-            }
-            if !visualConcepts.isEmpty,
-               !matchesVisualConcepts(visualConcepts, entry: entry) {
-                return false
-            }
-            return true
-        }
-
-        guard needsOCR(query) else { return metadataMatches }
-
-        var ocrMatches: [PHAsset] = []
-        for asset in metadataMatches where asset.mediaType == .image {
-            if Task.isCancelled { break }
-            guard let text = await cachedOrRecognizedText(
-                for: asset,
-                entry: indexedEntries[asset.localIdentifier]
-            ),
-                  matchesOCRText(text, query: query) else {
-                continue
-            }
-            ocrMatches.append(asset)
-        }
-        return ocrMatches
-    }
-
-    private static func fetchAssets(for query: PhotoSearchQuery) -> [PHAsset] {
-        let wantsImages = query.mediaTypes?.contains { $0.lowercased() == "image" || $0.lowercased() == "photo" } ?? true
-        let wantsVideos = query.mediaTypes?.contains { $0.lowercased() == "video" } ?? true
-        var assets: [PHAsset] = []
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        if wantsImages {
-            let images = PHAsset.fetchAssets(with: .image, options: options)
-            images.enumerateObjects { asset, _, _ in assets.append(asset) }
-        }
-        if wantsVideos {
-            let videos = PHAsset.fetchAssets(with: .video, options: options)
-            videos.enumerateObjects { asset, _, _ in assets.append(asset) }
-        }
-        return assets.sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
-    }
+        let result = PHAsset.fetchAssets(with: .image, options: options)
+        var assets: [PHAsset] = []
+        result.enumerateObjects { asset, _, _ in assets.append(asset) }
 
-    private static func matchesAssetTypes(
-        _ asset: PHAsset,
-        entry: PhotoSearchIndexEntry?,
-        _ types: [String]
-    ) -> Bool {
-        types.contains { rawType in
-            switch rawType.lowercased() {
-            case "screenshot":
-                entry?.assetTypes.contains("screenshot") ??
-                    asset.mediaSubtypes.contains(.photoScreenshot)
-            case "live", "livephoto", "live_photo":
-                entry?.assetTypes.contains("live") ??
-                    asset.mediaSubtypes.contains(.photoLive)
-            case "screenrecording", "screen_recording":
-                entry?.assetTypes.contains("screen_recording") ??
-                    asset.mediaSubtypes.contains(.videoScreenRecording)
-            case "bank_card", "bankcard", "credit_card", "id_card", "identity_card",
-                 "identity_document", "passport", "document", "certificate", "receipt", "invoice":
-                true
-            default:
-                false
-            }
+        let indexedEntries = await PhotoSearchIndexStore.shared.validEntries(for: assets)
+        return assets.filter { asset in
+            matchesVisualTags(
+                normalizedKeywords,
+                entry: indexedEntries[asset.localIdentifier]
+            )
         }
-    }
-
-    private static func locationCoordinate(
-        for asset: PHAsset,
-        entry: PhotoSearchIndexEntry?
-    ) -> CLLocationCoordinate2D? {
-        if let latitude = entry?.latitude,
-           let longitude = entry?.longitude {
-            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        }
-        return asset.location?.coordinate
-    }
-
-    private static func needsOCR(_ query: PhotoSearchQuery) -> Bool {
-        if query.requiresOCR == true { return true }
-        if !(query.ocrKeywords ?? []).isEmpty { return true }
-        if !(query.ocrRegexes ?? []).isEmpty { return true }
-        if !(query.sensitiveTypes ?? []).isEmpty { return true }
-        return inferredSensitiveTypes(from: query.rawText).isEmpty == false
     }
 
     private static func matchesVisualTags(
@@ -3701,46 +3201,12 @@ private enum PhotoSearchEngine {
         let indexedTags = Set((entry?.visualTags ?? []).map(normalizeVisualTag))
         guard !indexedTags.isEmpty else { return false }
         return requestedTags.allSatisfy { requestedTag in
-            let normalized = normalizeVisualTag(requestedTag)
-            switch normalized {
-            case "person", "people", "human":
-                return indexedTags.contains("person") ||
-                    indexedTags.contains("people") ||
-                    indexedTags.contains("human")
-            default:
-                return indexedTags.contains(normalized) ||
-                    visualTagSynonyms(for: normalized).contains(where: indexedTags.contains) ||
-                    indexedTags.contains { indexedTag in
-                        indexedTag.contains(normalized) || normalized.contains(indexedTag)
-                    }
-            }
+            indexedTags.contains(requestedTag) ||
+                visualTagSynonyms(for: requestedTag).contains(where: indexedTags.contains) ||
+                indexedTags.contains { indexedTag in
+                    indexedTag.contains(requestedTag) || requestedTag.contains(indexedTag)
+                }
         }
-    }
-
-    private static func matchesVisualConcepts(
-        _ concepts: [PhotoSearchQuery.VisualConcept],
-        entry: PhotoSearchIndexEntry?
-    ) -> Bool {
-        let indexedTags = Set((entry?.visualTags ?? []).map(normalizeVisualTag))
-        guard !indexedTags.isEmpty else { return false }
-        return concepts.allSatisfy { concept in
-            concept.matchAny.contains { candidate in
-                visualCandidateMatches(candidate, indexedTags: indexedTags)
-            }
-        }
-    }
-
-    private static func visualCandidateMatches(
-        _ candidate: String,
-        indexedTags: Set<String>
-    ) -> Bool {
-        let normalized = normalizeVisualTag(candidate)
-        guard !normalized.isEmpty else { return false }
-        return indexedTags.contains(normalized) ||
-            visualTagSynonyms(for: normalized).contains(where: indexedTags.contains) ||
-            indexedTags.contains { indexedTag in
-                indexedTag.contains(normalized) || normalized.contains(indexedTag)
-            }
     }
 
     private static func normalizeVisualTag(_ value: String) -> String {
@@ -3762,16 +3228,14 @@ private enum PhotoSearchEngine {
             return ["food", "meal", "dish", "cuisine", "plate"]
         case "beach", "sea", "ocean":
             return ["beach", "sea", "ocean", "coast", "shore", "seashore", "water"]
-        case "crab", "shellfish", "seafood":
-            return ["crab", "shellfish", "seafood", "animal", "food"]
         case "dog":
             return ["dog", "canine"]
         case "cat":
             return ["cat", "feline"]
         case "pet", "animal":
-            return ["pet", "animal", "dog", "cat", "canine", "feline", "crab", "shellfish"]
-        case "person", "people", "human", "kid", "child", "children":
-            return ["person", "people", "human", "kid", "child", "children"]
+            return ["pet", "animal", "dog", "cat", "canine", "feline"]
+        case "person", "people", "human":
+            return ["person", "people", "human"]
         case "building", "architecture":
             return ["building", "architecture", "house", "skyscraper"]
         case "flower", "plant":
@@ -3781,210 +3245,6 @@ private enum PhotoSearchEngine {
         default:
             return [tag]
         }
-    }
-
-    private static func matchesOCRText(_ text: String, query: PhotoSearchQuery) -> Bool {
-        let normalizedText = normalize(text)
-        if matchesOCRRegexes(query.ocrRegexes ?? [], text: text, normalizedText: normalizedText) {
-            return true
-        }
-        let sensitiveTypes = Set((query.sensitiveTypes ?? []) + inferredSensitiveTypes(from: query.rawText))
-        if sensitiveTypes.contains(where: { matchesSensitiveType($0, normalizedText: normalizedText) }) {
-            return true
-        }
-        let keywords = (query.ocrKeywords ?? [])
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard !keywords.isEmpty else {
-            return query.requiresOCR == true && !normalizedText.isEmpty
-        }
-        return keywords.contains { normalizedText.contains(normalize($0)) }
-    }
-
-    private static func matchesOCRRegexes(
-        _ regexes: [String],
-        text: String,
-        normalizedText: String
-    ) -> Bool {
-        let compactText = text
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-        return regexes.contains { pattern in
-            guard !pattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return false
-            }
-            return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil ||
-                compactText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil ||
-                normalizedText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-        }
-    }
-
-    private static func matchesSensitiveType(_ type: String, normalizedText: String) -> Bool {
-        switch type.lowercased() {
-        case "bank_card", "bankcard", "credit_card":
-            let hasBankWords = ["银行卡", "信用卡", "储蓄卡", "银联", "unionpay", "bankcard", "creditcard"]
-                .contains { normalizedText.contains($0) }
-            return hasBankWords || containsLongNumber(normalizedText, minimumDigits: 13)
-        case "id_card", "identity_card", "identity_document":
-            let hasIDWords = ["居民身份证", "身份证", "公民身份号码", "签发机关", "有效期限", "住址", "出生"]
-                .contains { normalizedText.contains($0) }
-            return hasIDWords || containsChineseIDNumber(normalizedText)
-        case "passport":
-            return ["护照", "passport", "国籍", "placeofbirth", "dateofexpiry"]
-                .contains { normalizedText.contains($0) }
-        case "document", "certificate", "receipt", "invoice":
-            return ["发票", "票据", "收据", "合同", "证明", "证书", "invoice", "receipt", "contract"]
-                .contains { normalizedText.contains($0) }
-        default:
-            return false
-        }
-    }
-
-    private static func inferredSensitiveTypes(from rawText: String?) -> [String] {
-        let text = normalize(rawText ?? "")
-        var types: [String] = []
-        if text.contains("银行卡") || text.contains("信用卡") || text.contains("储蓄卡") || text.contains("bankcard") {
-            types.append("bank_card")
-        }
-        if text.contains("证件") || text.contains("身份证") || text.contains("identity") {
-            types.append("id_card")
-        }
-        if text.contains("护照") || text.contains("passport") {
-            types.append("passport")
-        }
-        if text.contains("发票") || text.contains("票据") || text.contains("合同") || text.contains("receipt") || text.contains("invoice") {
-            types.append("document")
-        }
-        return types
-    }
-
-    private static func cachedOrRecognizedText(
-        for asset: PHAsset,
-        entry: PhotoSearchIndexEntry?
-    ) async -> String? {
-        if entry?.ocrIndexedAt != nil {
-            return entry?.ocrText ?? ""
-        }
-        let text = await recognizedText(for: asset) ?? ""
-        try? await PhotoSearchIndexStore.shared.updateOCRText(text, for: asset)
-        return text
-    }
-
-    private static func recognizedText(for asset: PHAsset) async -> String? {
-        guard let image = await requestOCRImage(for: asset),
-              let cgImage = image.cgImage else {
-            return nil
-        }
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["zh-Hans", "en-US"]
-        let handler = VNImageRequestHandler(cgImage: cgImage)
-        do {
-            try handler.perform([request])
-            return request.results?
-                .compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: "\n")
-        } catch {
-            return nil
-        }
-    }
-
-    private static func requestOCRImage(for asset: PHAsset) async -> UIImage? {
-        await withCheckedContinuation { continuation in
-            let options = PHImageRequestOptions()
-            options.deliveryMode = .fastFormat
-            options.resizeMode = .fast
-            options.isNetworkAccessAllowed = false
-            PHImageManager.default().requestImage(
-                for: asset,
-                targetSize: CGSize(width: 900, height: 900),
-                contentMode: .aspectFit,
-                options: options
-            ) { image, _ in
-                continuation.resume(returning: image)
-            }
-        }
-    }
-
-    private static func normalize(_ text: String) -> String {
-        text
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "\n", with: "")
-            .lowercased()
-    }
-
-    private static func containsLongNumber(_ text: String, minimumDigits: Int) -> Bool {
-        var run = 0
-        for character in text {
-            if character.isNumber {
-                run += 1
-                if run >= minimumDigits { return true }
-            } else {
-                run = 0
-            }
-        }
-        return false
-    }
-
-    private static func containsChineseIDNumber(_ text: String) -> Bool {
-        let pattern = #"\d{17}[\dxX]"#
-        return text.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    private static func allLocationBounds(for query: PhotoSearchQuery) -> [PhotoSearchQuery.LocationBounds] {
-        var result = query.locationBounds ?? []
-        for location in query.locations ?? [] {
-            if let known = knownBounds(for: location) {
-                result.append(known)
-            }
-        }
-        return result
-    }
-
-    private static func knownBounds(for location: String) -> PhotoSearchQuery.LocationBounds? {
-        let normalized = location.lowercased()
-        if normalized.contains("海南") || normalized.contains("hainan") {
-            return PhotoSearchQuery.LocationBounds(
-                name: "海南",
-                minLatitude: 18.0,
-                maxLatitude: 20.3,
-                minLongitude: 108.3,
-                maxLongitude: 111.2
-            )
-        }
-        return nil
-    }
-
-    private static func parseDate(_ value: String?, endOfDay: Bool) -> Date? {
-        guard let value, !value.isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: value) else { return nil }
-        if endOfDay {
-            return Calendar.current.date(byAdding: DateComponents(day: 1, second: -1), to: date)
-        }
-        return date
-    }
-
-    private static func storageBytes(_ asset: PHAsset) -> Int64 {
-        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
-            if let fileSize = resource.value(forKey: "fileSize") as? NSNumber {
-                return total + fileSize.int64Value
-            }
-            return total
-        }
-    }
-}
-
-private extension PhotoSearchQuery.LocationBounds {
-    func contains(_ coordinate: CLLocationCoordinate2D) -> Bool {
-        coordinate.latitude >= minLatitude &&
-            coordinate.latitude <= maxLatitude &&
-            coordinate.longitude >= minLongitude &&
-            coordinate.longitude <= maxLongitude
     }
 }
 
@@ -4082,6 +3342,9 @@ struct EmptyAlbumCleanView: View {
 struct SettingsView: View {
     @EnvironmentObject private var library: PhotoLibraryService
     @State private var showCacheConfirmation = false
+    @State private var isExportingSearchIndex = false
+    @State private var exportedSearchIndexURL: URL?
+    @State private var exportErrorMessage: String?
 
     var body: some View {
         ScrollView {
@@ -4110,6 +3373,18 @@ struct SettingsView: View {
                         )
                     }
                     .buttonStyle(.plain)
+
+                    Button {
+                        exportSmartSearchIndex()
+                    } label: {
+                        SettingsActionRow(
+                            title: String(localized: "settings.smart.search.export"),
+                            value: exportStatusText,
+                            systemImage: "square.and.arrow.up"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isExportingSearchIndex)
                 }
 
                 SettingsGroup(title: String(localized: "settings.support")) {
@@ -4140,6 +3415,27 @@ struct SettingsView: View {
         } message: {
             Text("settings.clear.cache.confirm.message")
         }
+        .sheet(
+            isPresented: Binding(
+                get: { exportedSearchIndexURL != nil },
+                set: { if !$0 { exportedSearchIndexURL = nil } }
+            )
+        ) {
+            if let exportedSearchIndexURL {
+                ActivityView(activityItems: [exportedSearchIndexURL])
+            }
+        }
+        .alert(
+            "settings.smart.search.export.failed.title",
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { if !$0 { exportErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(exportErrorMessage ?? "")
+        }
         .animatedTabBarVisible()
     }
 
@@ -4160,6 +3456,38 @@ struct SettingsView: View {
             return String(localized: "settings.photo.access.none")
         }
     }
+
+    private var exportStatusText: String {
+        isExportingSearchIndex
+            ? String(localized: "settings.smart.search.export.in.progress")
+            : String(localized: "settings.smart.search.export.value")
+    }
+
+    private func exportSmartSearchIndex() {
+        Task {
+            isExportingSearchIndex = true
+            defer { isExportingSearchIndex = false }
+
+            do {
+                exportedSearchIndexURL = try await library.exportSmartSearchDebugIndex()
+            } catch {
+                exportErrorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
 }
 
 private struct CleanerScroll<Content: View>: View {

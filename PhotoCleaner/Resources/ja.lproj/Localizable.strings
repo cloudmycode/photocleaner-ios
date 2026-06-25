@@ -99,6 +99,10 @@
 "settings.keep.original" = "元動画を保持";
 "settings.general.security" = "一般とセキュリティ";
 "settings.clear.cache" = "キャッシュを削除";
+"settings.smart.search.export" = "スマート検索インデックスを書き出す";
+"settings.smart.search.export.value" = "JSON";
+"settings.smart.search.export.in.progress" = "書き出し中";
+"settings.smart.search.export.failed.title" = "書き出しに失敗しました";
 "settings.support" = "サポートと情報";
 "settings.email" = "メール";
 "settings.rate" = "評価する";

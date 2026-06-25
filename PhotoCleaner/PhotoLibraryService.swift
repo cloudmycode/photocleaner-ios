@@ -126,6 +126,17 @@ private struct MediaAssetSnapshot {
 
 @MainActor
 final class PhotoLibraryService: NSObject, ObservableObject {
+    enum SmartSearchDebugExportError: LocalizedError {
+        case photoAccessRequired
+
+        var errorDescription: String? {
+            switch self {
+            case .photoAccessRequired:
+                return String(localized: "photo.access.description")
+            }
+        }
+    }
+
     enum ScanState: Equatable {
         case idle
         case loadingLibrary
@@ -1032,6 +1043,24 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             analysisCacheSize = 0
             scanState = .idle
         }
+    }
+
+    func exportSmartSearchDebugIndex() async throws -> URL {
+        guard authorizationStatus == .authorized || authorizationStatus == .limited else {
+            throw SmartSearchDebugExportError.photoAccessRequired
+        }
+
+        searchIndexTask?.cancel()
+
+        let imageAssets = Self.fetchImageAssets()
+        try await searchIndexStore.rebuildMetadata(for: imageAssets)
+        await Self.indexSearchImagesIfNeeded(for: imageAssets)
+        let fileURL = try await searchIndexStore.exportDebugSnapshot(for: imageAssets)
+        analysisCacheSize = await analysisCache.sizeInBytes() +
+            duplicateCache.sizeInBytes() +
+            searchIndexStore.sizeInBytes() +
+            detailGroupCache.sizeInBytes()
+        return fileURL
     }
 
     private func refreshSearchIndexInBackground() {

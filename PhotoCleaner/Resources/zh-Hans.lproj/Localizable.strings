@@ -99,6 +99,10 @@
 "settings.keep.original" = "压缩后保留原视频";
 "settings.general.security" = "通用与安全";
 "settings.clear.cache" = "清理缓存空间";
+"settings.smart.search.export" = "导出智能找图索引";
+"settings.smart.search.export.value" = "JSON";
+"settings.smart.search.export.in.progress" = "导出中";
+"settings.smart.search.export.failed.title" = "导出失败";
 "settings.support" = "支持与关于";
 "settings.email" = "电子邮件";
 "settings.rate" = "评价我们";
