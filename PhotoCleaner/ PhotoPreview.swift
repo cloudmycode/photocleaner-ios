@@ -3195,6 +3195,7 @@ private struct PhotoSearchQuery: Decodable {
     var hasLocation: Bool?
     var keywords: [String]?
     var visualTags: [String]?
+    var visualConcepts: [VisualConcept]?
     var ocrKeywords: [String]?
     var ocrRegexes: [String]?
     var sensitiveTypes: [String]?
@@ -3212,6 +3213,11 @@ private struct PhotoSearchQuery: Decodable {
         var maxLatitude: Double
         var minLongitude: Double
         var maxLongitude: Double
+    }
+
+    struct VisualConcept: Decodable {
+        var name: String?
+        var matchAny: [String]
     }
 
     var displayChips: [String] {
@@ -3234,6 +3240,7 @@ private struct PhotoSearchQuery: Decodable {
         }
         chips.append(contentsOf: (sensitiveTypes ?? []).map(Self.sensitiveTypeLabel))
         chips.append(contentsOf: effectiveVisualTags.map(Self.visualTagLabel))
+        chips.append(contentsOf: effectiveVisualConcepts.compactMap(\.name))
         chips.append(contentsOf: (ocrKeywords ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.keyword.format"), $0) })
         chips.append(contentsOf: (ocrRegexes ?? []).map { String.localizedStringWithFormat(String(localized: "smart.search.ocr.regex.format"), $0) })
         chips.append(contentsOf: (keywords ?? []).map { "#\($0)" })
@@ -3281,6 +3288,10 @@ private struct PhotoSearchQuery: Decodable {
 
     var effectiveVisualTags: [String] {
         Array(Set((visualTags ?? []) + Self.inferredVisualTags(from: rawText))).sorted()
+    }
+
+    var effectiveVisualConcepts: [VisualConcept] {
+        visualConcepts?.filter { !$0.matchAny.isEmpty } ?? []
     }
 
     private static func visualTagLabel(_ tag: String) -> String {
@@ -3464,6 +3475,7 @@ private struct CloudPhotoSearchParser {
       "hasLocation": true,
       "keywords": [],
       "visualTags": ["person", "red_clothing", "blue_clothing", "white_clothing", "black_clothing", "yellow_clothing", "green_clothing", "car", "food", "beach", "dog", "cat", "pet", "building", "sky", "flower", "document"],
+      "visualConcepts": [{"name": "concept name in user's language", "matchAny": ["english_vision_label", "synonym"]}],
       "ocrKeywords": [],
       "ocrRegexes": [],
       "sensitiveTypes": ["bank_card", "id_card", "passport", "document"],
@@ -3472,7 +3484,10 @@ private struct CloudPhotoSearchParser {
     Omit unknown fields. Photos never leave the device; use OCR fields for text on images.
     Resolve relative dates like today, yesterday, last year, and last month from the provided Current date.
     If the user says photos, pictures, or images, set mediaTypes to ["image"]. If the user says videos or recordings, set mediaTypes to ["video"].
+    Only set hasLocation when the user explicitly asks for photos with location information or without location information. Do not set hasLocation for visual scenes like beach, sea, mountains, or city.
     For visual object searches without an explicit media type, prefer mediaTypes ["image"].
+    For open-ended visual requests, return visualConcepts. Each visualConcept represents one required concept; matchAny contains English Vision-style labels and synonyms. Concepts are ANDed together, labels inside matchAny are ORed.
+    Example: "catching crabs" should include {"name":"抓螃蟹","matchAny":["crab","shellfish","seafood"]}. Add only concepts that are likely visible in the image.
     For card tail-number queries, set requiresOCR true and use a regex that matches the number inside OCR text, not only at the end of the whole text; for example tail number 124 should use "\\d{0,15}124\\b".
     visualTags must contain only the allowed English enum values from the schema, never Chinese words.
     For people clothing queries, use person plus color_clothing. Do not infer gender as a required tag.
@@ -3548,6 +3563,7 @@ private enum PhotoSearchEngine {
         let minBytes = query.minSizeMB.map { Int64($0 * 1_000_000) }
         let maxBytes = query.maxSizeMB.map { Int64($0 * 1_000_000) }
         let visualTags = query.effectiveVisualTags
+        let visualConcepts = query.effectiveVisualConcepts
 
         let metadataMatches = assets.filter { asset in
             let entry = indexedEntries[asset.localIdentifier]
@@ -3576,6 +3592,10 @@ private enum PhotoSearchEngine {
             }
             if !visualTags.isEmpty,
                !matchesVisualTags(visualTags, entry: entry) {
+                return false
+            }
+            if !visualConcepts.isEmpty,
+               !matchesVisualConcepts(visualConcepts, entry: entry) {
                 return false
             }
             return true
@@ -3682,6 +3702,32 @@ private enum PhotoSearchEngine {
         }
     }
 
+    private static func matchesVisualConcepts(
+        _ concepts: [PhotoSearchQuery.VisualConcept],
+        entry: PhotoSearchIndexEntry?
+    ) -> Bool {
+        let indexedTags = Set((entry?.visualTags ?? []).map(normalizeVisualTag))
+        guard !indexedTags.isEmpty else { return false }
+        return concepts.allSatisfy { concept in
+            concept.matchAny.contains { candidate in
+                visualCandidateMatches(candidate, indexedTags: indexedTags)
+            }
+        }
+    }
+
+    private static func visualCandidateMatches(
+        _ candidate: String,
+        indexedTags: Set<String>
+    ) -> Bool {
+        let normalized = normalizeVisualTag(candidate)
+        guard !normalized.isEmpty else { return false }
+        return indexedTags.contains(normalized) ||
+            visualTagSynonyms(for: normalized).contains(where: indexedTags.contains) ||
+            indexedTags.contains { indexedTag in
+                indexedTag.contains(normalized) || normalized.contains(indexedTag)
+            }
+    }
+
     private static func normalizeVisualTag(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3700,13 +3746,17 @@ private enum PhotoSearchEngine {
         case "food", "meal", "dish":
             return ["food", "meal", "dish", "cuisine", "plate"]
         case "beach", "sea", "ocean":
-            return ["beach", "sea", "ocean", "coast", "shore", "seashore"]
+            return ["beach", "sea", "ocean", "coast", "shore", "seashore", "water"]
+        case "crab", "shellfish", "seafood":
+            return ["crab", "shellfish", "seafood", "animal", "food"]
         case "dog":
             return ["dog", "canine"]
         case "cat":
             return ["cat", "feline"]
         case "pet", "animal":
-            return ["pet", "animal", "dog", "cat", "canine", "feline"]
+            return ["pet", "animal", "dog", "cat", "canine", "feline", "crab", "shellfish"]
+        case "person", "people", "human", "kid", "child", "children":
+            return ["person", "people", "human", "kid", "child", "children"]
         case "building", "architecture":
             return ["building", "architecture", "house", "skyscraper"]
         case "flower", "plant":
