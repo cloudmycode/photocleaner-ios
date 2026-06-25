@@ -1677,7 +1677,7 @@ struct AssetGridCleanView: View {
             .navigationTitle(category.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         if allSelected { selectedIDs.removeAll() }
                         else { selectedIDs.formUnion(Set(assets.map(\.localIdentifier))) }
@@ -1900,7 +1900,7 @@ struct LivePhotoCleanView: View {
         .navigationTitle(category.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .automatic) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     if selectedIDs.isEmpty {
                         selectedIDs = recommendedIDs
