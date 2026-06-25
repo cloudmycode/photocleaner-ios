@@ -191,6 +191,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private var hasRequestedStartupScan = false
     private var isRestoringCachedDuplicates = false
     private var isRestoringCachedBursts = false
+    private var didAttemptCachedDuplicateRestore = false
+    private var didAttemptCachedBurstRestore = false
     private var isRestoringMediaAssets = false
     private var isRestoringEmptyAlbums = false
     private var isRestoringMonthlyReviewProgress = false
@@ -378,6 +380,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         scanTask = Task { [weak self] in
             guard let self else { return }
             scanState = .loadingLibrary
+            didAttemptCachedDuplicateRestore = false
+            didAttemptCachedBurstRestore = false
             if !hasHomeSummary {
                 photoCount = 0
                 videoCount = 0
@@ -603,10 +607,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         guard hasCompletedInitialAnalysis,
               duplicateGroups.isEmpty,
               duplicateCandidateCount > 0,
+              !didAttemptCachedDuplicateRestore,
               !isRestoringCachedDuplicates else {
             return
         }
         isRestoringCachedDuplicates = true
+        didAttemptCachedDuplicateRestore = true
 
         Task { [weak self] in
             guard let self else { return }
@@ -617,7 +623,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 isRestoringCachedDuplicates = false
                 return
             }
-            _ = await restoreDuplicateGroupsFromCache(in: assets)
+            _ = await restoreDuplicateGroupsFromCache(
+                in: assets,
+                updateSummaryCounts: false
+            )
             isRestoringCachedDuplicates = false
         }
     }
@@ -626,10 +635,12 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         guard hasCompletedInitialAnalysis,
               burstGroups.isEmpty,
               burstCandidateCount > 0,
+              !didAttemptCachedBurstRestore,
               !isRestoringCachedBursts else {
             return
         }
         isRestoringCachedBursts = true
+        didAttemptCachedBurstRestore = true
 
         Task { [weak self] in
             guard let self else { return }
@@ -645,7 +656,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
                 isRestoringCachedBursts = false
                 return
             }
-            _ = await restoreBurstGroupsFromCache(candidates: candidates)
+            _ = await restoreBurstGroupsFromCache(
+                candidates: candidates,
+                updateSummaryCounts: false
+            )
             isRestoringCachedBursts = false
         }
     }
@@ -973,6 +987,8 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     func clearAnalysisCache() {
         scanTask?.cancel()
         searchIndexTask?.cancel()
+        didAttemptCachedDuplicateRestore = false
+        didAttemptCachedBurstRestore = false
         hasCompletedInitialAnalysis = false
         UserDefaults.standard.removeObject(forKey: Self.initialAnalysisCompleteKey)
         UserDefaults.standard.removeObject(forKey: Self.mediaStorageRepairKey)
@@ -1331,27 +1347,36 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         })
     }
 
-    private func restoreDuplicateGroupsFromCache(in assets: [PHAsset]) async -> Bool {
+    private func restoreDuplicateGroupsFromCache(
+        in assets: [PHAsset],
+        updateSummaryCounts: Bool = true
+    ) async -> Bool {
         let cached = await duplicateCache.validFingerprints(for: assets)
         guard !cached.isEmpty else {
-            hasDuplicateScanResults = false
+            if updateSummaryCounts {
+                hasDuplicateScanResults = false
+            }
             return assets.isEmpty
         }
 
-        applyDuplicateGroups(
-            Self.makeDuplicateGroups(
-                from: assets,
-                fingerprints: cached.mapValues(\.fingerprint)
-            )
+        let groups = Self.makeDuplicateGroups(
+            from: assets,
+            fingerprints: cached.mapValues(\.fingerprint)
         )
+        applyDuplicateGroups(groups, updateSummaryCounts: updateSummaryCounts)
         return cached.count == assets.count
     }
 
-    private func restoreBurstGroupsFromCache(candidates: [[PHAsset]]) async -> Bool {
+    private func restoreBurstGroupsFromCache(
+        candidates: [[PHAsset]],
+        updateSummaryCounts: Bool = true
+    ) async -> Bool {
         guard !candidates.isEmpty else {
             burstGroups = []
-            burstCandidateCount = 0
-            burstCandidateStorageBytes = 0
+            if updateSummaryCounts {
+                burstCandidateCount = 0
+                burstCandidateStorageBytes = 0
+            }
             return true
         }
 
@@ -1372,8 +1397,10 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         burstGroups = restoredGroups.sorted {
             ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
         }
-        burstCandidateCount = Self.cleanableCount(in: burstGroups)
-        burstCandidateStorageBytes = Self.cleanableStorageBytes(in: burstGroups)
+        if updateSummaryCounts {
+            burstCandidateCount = Self.cleanableCount(in: burstGroups)
+            burstCandidateStorageBytes = Self.cleanableStorageBytes(in: burstGroups)
+        }
         return !hasMissingCache
     }
 
@@ -1428,10 +1455,15 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         duplicateScanProgress = nil
     }
 
-    private func applyDuplicateGroups(_ groups: [SimilarAssetGroup]) {
+    private func applyDuplicateGroups(
+        _ groups: [SimilarAssetGroup],
+        updateSummaryCounts: Bool = true
+    ) {
         duplicateGroups = groups
-        duplicateCandidateCount = Self.cleanableCount(in: groups)
-        duplicateCandidateStorageBytes = Self.cleanableStorageBytes(in: groups)
+        if updateSummaryCounts {
+            duplicateCandidateCount = Self.cleanableCount(in: groups)
+            duplicateCandidateStorageBytes = Self.cleanableStorageBytes(in: groups)
+        }
         hasDuplicateScanResults = true
     }
 
