@@ -3471,7 +3471,10 @@ private struct CloudPhotoSearchParser {
     }
     Omit unknown fields. Photos never leave the device; use OCR fields for text on images.
     Resolve relative dates like today, yesterday, last year, and last month from the provided Current date.
-    For card tail-number queries, put a suitable regex in ocrRegexes and set requiresOCR true.
+    If the user says photos, pictures, or images, set mediaTypes to ["image"]. If the user says videos or recordings, set mediaTypes to ["video"].
+    For visual object searches without an explicit media type, prefer mediaTypes ["image"].
+    For card tail-number queries, set requiresOCR true and use a regex that matches the number inside OCR text, not only at the end of the whole text; for example tail number 124 should use "\\d{0,15}124\\b".
+    visualTags must contain only the allowed English enum values from the schema, never Chinese words.
     For people clothing queries, use person plus color_clothing. Do not infer gender as a required tag.
     """
 
