@@ -3201,11 +3201,12 @@ private enum PhotoSearchEngine {
         let indexedTags = Set((entry?.visualTags ?? []).map(normalizeVisualTag))
         guard !indexedTags.isEmpty else { return false }
         return requestedTags.allSatisfy { requestedTag in
+            // 精确匹配
             indexedTags.contains(requestedTag) ||
-                visualTagSynonyms(for: requestedTag).contains(where: indexedTags.contains) ||
-                indexedTags.contains { indexedTag in
-                    indexedTag.contains(requestedTag) || requestedTag.contains(indexedTag)
-                }
+            // 子串包含匹配（tag 与关键词互相包含）
+            indexedTags.contains { indexedTag in
+                indexedTag.contains(requestedTag) || requestedTag.contains(indexedTag)
+            }
         }
     }
 
@@ -3218,33 +3219,6 @@ private enum PhotoSearchEngine {
             .split(separator: " ")
             .joined(separator: "_")
             .lowercased()
-    }
-
-    private static func visualTagSynonyms(for tag: String) -> Set<String> {
-        switch tag {
-        case "car", "vehicle", "automobile":
-            return ["car", "vehicle", "automobile", "motor_vehicle", "land_vehicle"]
-        case "food", "meal", "dish":
-            return ["food", "meal", "dish", "cuisine", "plate"]
-        case "beach", "sea", "ocean":
-            return ["beach", "sea", "ocean", "coast", "shore", "seashore", "water"]
-        case "dog":
-            return ["dog", "canine"]
-        case "cat":
-            return ["cat", "feline"]
-        case "pet", "animal":
-            return ["pet", "animal", "dog", "cat", "canine", "feline"]
-        case "person", "people", "human":
-            return ["person", "people", "human"]
-        case "building", "architecture":
-            return ["building", "architecture", "house", "skyscraper"]
-        case "flower", "plant":
-            return ["flower", "plant", "flora"]
-        case "document":
-            return ["document", "paper", "receipt", "invoice"]
-        default:
-            return [tag]
-        }
     }
 }
 
