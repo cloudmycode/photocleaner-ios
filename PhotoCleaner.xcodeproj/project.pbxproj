@@ -12,6 +12,7 @@
 		AA0000000000000000000003 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000020 /* Localizable.strings */; };
 		AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* PhotoLibraryService.swift */; };
 		AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* SimilarAnalysisCache.swift */; };
+		AA0000000000000000000006 /* SmartSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001A /* SmartSearch.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +25,7 @@
 		AA0000000000000000000017 /* PhotoCleaner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhotoCleaner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000018 /* PhotoLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibraryService.swift; sourceTree = "<group>"; };
 		AA0000000000000000000019 /* SimilarAnalysisCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarAnalysisCache.swift; sourceTree = "<group>"; };
+		AA000000000000000000001A /* SmartSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartSearch.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,6 +54,7 @@
 				AA0000000000000000000012 /*  PhotoPreview.swift */,
 				AA0000000000000000000018 /* PhotoLibraryService.swift */,
 				AA0000000000000000000019 /* SimilarAnalysisCache.swift */,
+				AA000000000000000000001A /* SmartSearch.swift */,
 				AA0000000000000000000013 /* Info.plist */,
 				AA0000000000000000000043 /* Resources */,
 			);
@@ -150,6 +153,7 @@
 				AA0000000000000000000002 /*  PhotoPreview.swift in Sources */,
 				AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */,
 				AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */,
+				AA0000000000000000000006 /* SmartSearch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

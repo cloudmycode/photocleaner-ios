@@ -6,3 +6,7 @@ build/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Server config with secrets
+server/src/go/config.go
+server/src/go/smart-search

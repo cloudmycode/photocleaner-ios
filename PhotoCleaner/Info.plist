@@ -30,8 +30,10 @@
 	<string>Smart Cleaner needs microphone access so you can search photos by voice.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Smart Cleaner uses speech recognition to turn your voice into photo search text.</string>
-	<key>PhotoQueryParseEndpoint</key>
-	<string></string>
+	<key>SmartSearchEndpoint</key>
+	<string>https://cleaner.digsaw.cc/smart-search</string>
+	<key>SmartSearchSecret</key>
+	<string>4154b54de82723ca38aec922b3f6a7dfc104fde9</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

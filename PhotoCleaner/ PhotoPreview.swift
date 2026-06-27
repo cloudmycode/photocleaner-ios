@@ -2847,8 +2847,6 @@ struct SmartPhotoSearchView: View {
     @State private var previewAsset: IdentifiablePHAsset?
     @State private var didStartPress = false
 
-    private let parser = KeywordSearchParser()
-
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
@@ -3036,29 +3034,21 @@ struct SmartPhotoSearchView: View {
 
     private func submitQuery(_ rawText: String) {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isParsing else { return }
+        guard !text.isEmpty, !isParsing, !isSearching else { return }
         errorMessage = nil
         results = []
         isParsing = true
+        isSearching = true
         Task {
             do {
-                let keywords = try await parser.parse(text)
+                results = try await SmartSearchService.search(query: text)
                 isParsing = false
-                runSearch(keywords)
+                isSearching = false
             } catch {
                 isParsing = false
                 isSearching = false
                 errorMessage = String(localized: "smart.search.network.unavailable")
             }
-        }
-    }
-
-    private func runSearch(_ keywords: [String]) {
-        isSearching = true
-        Task {
-            let assets = await PhotoSearchEngine.search(keywords: keywords)
-            results = assets
-            isSearching = false
         }
     }
 }
@@ -3129,96 +3119,6 @@ private final class PhotoSearchSpeechInput: NSObject, ObservableObject {
                 }
             }
         }
-    }
-}
-
-private struct KeywordSearchResponse: Decodable {
-    let keywords: [String]
-}
-
-private struct KeywordSearchParser {
-    func parse(_ text: String) async throws -> [String] {
-        guard let endpoint = Bundle.main.object(forInfoDictionaryKey: "PhotoQueryParseEndpoint") as? String,
-              let url = URL(string: endpoint),
-              !endpoint.isEmpty else {
-            throw URLError(.notConnectedToInternet)
-        }
-
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(
-            KeywordSearchRequest(
-                query: trimmedText,
-                locale: Locale.current.identifier
-            )
-        )
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-
-        let parsed = try JSONDecoder().decode(KeywordSearchResponse.self, from: data)
-        return parsed.keywords
-    }
-
-    private struct KeywordSearchRequest: Encodable {
-        let query: String
-        let locale: String
-    }
-}
-
-private enum PhotoSearchEngine {
-    static func search(keywords: [String]) async -> [PHAsset] {
-        let normalizedKeywords = keywords
-            .map(normalizeVisualTag)
-            .filter { !$0.isEmpty }
-        guard !normalizedKeywords.isEmpty else { return [] }
-
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        let result = PHAsset.fetchAssets(with: .image, options: options)
-        var assets: [PHAsset] = []
-        result.enumerateObjects { asset, _, _ in assets.append(asset) }
-
-        let indexedEntries = await PhotoSearchIndexStore.shared.validEntries(for: assets)
-        return assets.filter { asset in
-            matchesVisualTags(
-                normalizedKeywords,
-                entry: indexedEntries[asset.localIdentifier]
-            )
-        }
-    }
-
-    private static func matchesVisualTags(
-        _ requestedTags: [String],
-        entry: PhotoSearchIndexEntry?
-    ) -> Bool {
-        let indexedTags = Set((entry?.visualTags ?? []).map(normalizeVisualTag))
-        guard !indexedTags.isEmpty else { return false }
-        return requestedTags.allSatisfy { requestedTag in
-            // 精确匹配
-            indexedTags.contains(requestedTag) ||
-            // 子串包含匹配（tag 与关键词互相包含）
-            indexedTags.contains { indexedTag in
-                indexedTag.contains(requestedTag) || requestedTag.contains(indexedTag)
-            }
-        }
-    }
-
-    private static func normalizeVisualTag(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .joined(separator: "_")
-            .lowercased()
     }
 }
 

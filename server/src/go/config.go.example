@@ -1,0 +1,27 @@
+package main
+
+import "time"
+
+// Config 服务配置
+type Config struct {
+	ServerSecret  string        // 服务器密钥（用于签名验证）
+	DeepSeekAPIKey string      // DeepSeek API Key
+	DeepSeekBaseURL string     // DeepSeek API Base URL
+	DeepSeekModel  string      // DeepSeek Model
+	DefaultCount   int         // 默认返回数量
+	MaxCount       int         // 最大返回数量
+	RequestTimeout time.Duration // 请求超时时间
+}
+
+// DefaultConfig 默认配置
+func DefaultConfig() *Config {
+	return &Config{
+		ServerSecret:  "your-server-secret-key",
+		DeepSeekAPIKey: "your-deepseek-api-key",
+		DeepSeekBaseURL: "https://api.deepseek.com",
+		DeepSeekModel:  "deepseek-chat",
+		DefaultCount:   1000,
+		MaxCount:       1000,
+		RequestTimeout: 15 * time.Second,
+	}
+}

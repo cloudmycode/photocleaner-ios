@@ -189,6 +189,30 @@ actor PhotoSearchIndexStore {
         return attributes[.size] as? Int64 ?? 0
     }
 
+    /// 本机 visualTags 去重列表，按出现频次降序；默认全量，最多 `limit` 个。
+    func topVisualTags(limit: Int = 1000) -> [String] {
+        loadIfNeeded()
+        guard let entries, limit > 0 else { return [] }
+
+        var counts: [String: Int] = [:]
+        for entry in entries.values {
+            guard let tags = entry.visualTags, !tags.isEmpty else { continue }
+            for tag in tags {
+                let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                counts[trimmed, default: 0] += 1
+            }
+        }
+
+        return counts
+            .sorted {
+                if $0.value != $1.value { return $0.value > $1.value }
+                return $0.key < $1.key
+            }
+            .prefix(limit)
+            .map(\.key)
+    }
+
     func exportDebugSnapshot(for assets: [PHAsset]) throws -> URL {
         loadIfNeeded()
 

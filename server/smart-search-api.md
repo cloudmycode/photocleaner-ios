@@ -5,8 +5,149 @@
 客户端智能搜索的完整流程：
 
 1. **客户端**：用户输入搜索文本 → 发送原文到服务器
-2. **服务器**：调用大模型解析搜索意图 → 返回结构化的搜索条件（时间、位置、类型、大小、数量、关键词）
-3. **客户端**：用返回的条件在本地图片索引中筛选 → 先按硬条件过滤 → 再按关键词匹配度排序 → 展示 Top N
+2. **服务器**：调用大模型解析搜索意图 → 返回 **SearchPlan**（`filters` 元数据 + `must` 倒排交集条件）
+3. **客户端**：用 SearchPlan 在本地倒排表做交集检索 → `filters` 验正排档案 → 按时间排序取 Top N
+
+---
+
+## 客户端开发任务拆解
+
+### 任务总览
+
+| 阶段 | 任务 | 优先级 | 状态 |
+|------|------|--------|------|
+| 1 | 创建配置管理 | 高 | ✅ 已完成 |
+| 2 | 创建网络请求工具 | 高 | ✅ 已完成 |
+| 3 | 创建数据模型 | 高 | ✅ 已完成 |
+| 4 | 实现签名算法 | 高 | ✅ 已完成 |
+| 5 | 实现智能搜索服务 | 高 | ✅ 已完成 |
+| 6 | 实现本地匹配算法 | 高 | ✅ 已完成 |
+| 7 | 集成到 UI | 中 | 待开发 |
+
+---
+
+### 任务 1：创建配置管理
+
+**目标**：统一管理服务器地址和密钥配置
+
+**文件位置**：`PhotoCleaner/SmartSearchConfig.swift`
+
+**实现内容**：
+- 从 `Info.plist` 读取 `SmartSearchEndpoint` 和 `SmartSearchSecret`
+- 提供配置访问的静态方法
+
+**配置项**（需在 Info.plist 中添加）：
+```xml
+<key>SmartSearchEndpoint</key>
+<string>https://cleaner.digsaw.cc/smart-search</string>
+<key>SmartSearchSecret</key>
+<string>your-secret-key-here</string>
+```
+
+---
+
+### 任务 2：创建网络请求工具
+
+**目标**：封装 HTTP 请求逻辑
+
+**文件位置**：`PhotoCleaner/SmartSearchClient.swift`
+
+**实现内容**：
+- `fetchSearchCondition(query:) async throws -> SmartSearchCondition`
+- 处理请求体构建（query, locale, appVersion, buildVersion, sign）
+- 处理响应解析和错误处理
+- 15 秒超时
+
+---
+
+### 任务 3：创建数据模型
+
+**目标**：定义搜索条件的数据结构
+
+**文件位置**：`PhotoCleaner/SmartSearchModels.swift`
+
+**实现内容**：
+- `SmartSearchCondition` - 搜索条件
+- `SmartSearchDateRange` - 日期范围
+- `SmartSearchLocationBound` - 位置边界
+- `SmartSearchVisualConcept` - 视觉概念
+
+---
+
+### 任务 4：实现签名算法
+
+**目标**：计算 MD5 签名
+
+**文件位置**：在 `SmartSearchClient.swift` 中实现
+
+**实现内容**：
+```swift
+import CommonCrypto
+
+func calculateSign(query: String, secret: String) -> String {
+    let raw = query + secret
+    var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+    raw.withCString { cString in
+        CC_MD5(cString, CC_LONG(raw.utf8.count), &digest)
+    }
+    return digest.map { String(format: "%02x", $0) }.joined()
+}
+```
+
+---
+
+### 任务 5：实现智能搜索服务
+
+**目标**：整合网络请求和本地匹配
+
+**文件位置**：`PhotoCleaner/SmartSearchService.swift`
+
+**实现内容**：
+- `search(query:) async throws -> [PHAsset]`
+- 调用 `SmartSearchClient` 获取搜索条件
+- 调用 `PhotoSearchIndexStore` 获取本地索引
+- 调用匹配算法筛选图片
+- 转换 `PhotoSearchIndexEntry` 为 `PHAsset`
+
+---
+
+### 任务 6：实现本地匹配算法
+
+**目标**：在本地图片索引中筛选匹配图片
+
+**文件位置**：`PhotoCleaner/SmartSearchMatcher.swift`
+
+**实现内容**：
+- `filterByHardConditions(entries:, condition:) -> [PhotoSearchIndexEntry]`
+  - 时间范围过滤
+  - 位置边界过滤
+  - 媒体类型过滤
+  - 资源类型过滤
+  - 文件大小过滤
+  - 像素尺寸过滤
+  - 是否有位置信息过滤
+
+- `scoreByKeywords(entries:, condition:) -> [(entry, score)]`
+  - 关键词匹配（visualTags + ocrText）
+  - 视觉概念匹配（visualConcepts）
+  - OCR 正则匹配（ocrRegexes）
+
+- `matchesKeyword(_:, entry:) -> Bool`
+- `matchesVisualTag(_:, entry:) -> Bool`
+
+---
+
+### 任务 7：集成到 UI
+
+**目标**：在现有搜索界面中集成智能搜索
+
+**文件位置**：`PhotoCleaner/ PhotoPreview.swift`（或新建搜索视图）
+
+**实现内容**：
+- 识别用户输入是否为自然语言搜索
+- 调用 `SmartSearchService.search()`
+- 展示搜索结果
+- 处理加载状态和错误
 
 ## 客户端本地索引结构【已完成】
 
@@ -69,6 +210,7 @@
   "locale": "zh-Hans_CN",
   "appVersion": "1.0.0",
   "buildVersion": "100",
+  "availableTags": ["person", "beach", "ocean", "sky"],
   "sign": "a1b2c3d4e5f6..."
 }
 ```
@@ -81,6 +223,7 @@
 | `locale` | `string` | 是 | 设备语言区域，如 `zh-Hans_CN`、`en_US`、`ja_JP` |
 | `appVersion` | `string` | 是 | 客户端 App 版本号，如 `"1.0.0"` |
 | `buildVersion` | `string` | 是 | 客户端 Build 号，如 `"100"` |
+| `availableTags` | `string[]` | 是 | 本机 visualTags 全量去重列表（最多 1000），供 LLM 选词 |
 | `sign` | `string` | 是 | 签名，用于验证请求完整性 |
 
 ### 签名算法
@@ -127,49 +270,43 @@ def verify_sign(query: str, sign: str, secret: str) -> bool:
 
 - `query` 是自然语言文本，服务器不应信任其格式
 - 服务器应再次 trim 并做空值校验
-- 空查询应返回 `{"keywords": [], "count": 9}`
+- `availableTags` 必填，可为空数组 `[]`
+- 空查询应返回 400
 - `appVersion` 和 `buildVersion` 用于服务器判断客户端能力，便于后续版本兼容
 - `sign` 验证失败应返回 `401 Unauthorized`
 
-## Response Schema
+## Response Schema（SearchPlan v2）
 
 ### 响应
 
 ```json
 {
   "summary": "去年在海南拍的海边人物照片",
-  "dateRange": {
-    "start": "2025-01-01",
-    "end": "2025-12-31"
+  "filters": {
+    "dateRange": {
+      "start": "2025-01-01",
+      "end": "2025-12-31"
+    },
+    "locationBounds": [
+      {
+        "name": "海南",
+        "minLatitude": 18.0,
+        "maxLatitude": 20.0,
+        "minLongitude": 108.0,
+        "maxLongitude": 111.0
+      }
+    ],
+    "mediaTypes": ["image"],
+    "minPixelWidth": 800,
+    "minPixelHeight": 800,
+    "hasLocation": true
   },
-  "locationBounds": [
-    {
-      "name": "海南",
-      "minLatitude": 18.0,
-      "maxLatitude": 20.0,
-      "minLongitude": 108.0,
-      "maxLongitude": 111.0
-    }
-  ],
-  "mediaTypes": ["image"],
-  "assetTypes": [],
-  "minSizeMB": 1,
-  "maxSizeMB": 100,
-  "minPixelWidth": 800,
-  "minPixelHeight": 800,
-  "hasLocation": true,
-  "keywords": ["beach", "sea", "ocean", "person", "face", "portrait"],
-  "visualConcepts": [
-    {
-      "name": "海边",
-      "matchAny": ["beach", "shore", "seaside", "coast"]
-    }
-  ],
-  "ocrKeywords": ["合同"],
-  "ocrRegexes": [],
-  "sensitiveTypes": [],
-  "requiresOCR": false,
-  "count": 9,
+  "must": {
+    "visualTagsAll": ["beach", "person"],
+    "sensitiveTypes": [],
+    "ocrContainsAll": []
+  },
+  "count": 1000,
   "confidence": 0.85
 }
 ```
@@ -179,44 +316,31 @@ def verify_sign(query: str, sign: str, secret: str) -> bool:
 | Field | Type | Required | Description |
 |---|---|---:|---|
 | `summary` | `string` | 是 | 搜索条件的简短描述，用于 UI 展示 |
-| `dateRange` | `object` | 否 | 时间范围 |
-| `dateRange.start` | `string` | 否 | 起始日期，`YYYY-MM-DD` 格式 |
-| `dateRange.end` | `string` | 否 | 结束日期，`YYYY-MM-DD` 格式 |
-| `locationBounds` | `object[]` | 否 | 位置边界数组 |
-| `locationBounds[].name` | `string` | 否 | 位置名称（如"海南"） |
-| `locationBounds[].minLatitude` | `number` | 否 | 最小纬度 |
-| `locationBounds[].maxLatitude` | `number` | 否 | 最大纬度 |
-| `locationBounds[].minLongitude` | `number` | 否 | 最小经度 |
-| `locationBounds[].maxLongitude` | `number` | 否 | 最大经度 |
-| `mediaTypes` | `string[]` | 否 | 媒体类型过滤，可选 `"image"`、`"video"` |
-| `assetTypes` | `string[]` | 否 | 资源类型过滤，可选 `"screenshot"`、`"live"`、`"screen_recording"` |
-| `minSizeMB` | `number` | 否 | 最小文件大小（MB） |
-| `maxSizeMB` | `number` | 否 | 最大文件大小（MB） |
-| `minPixelWidth` | `integer` | 否 | 最小宽度（像素） |
-| `minPixelHeight` | `integer` | 否 | 最小高度（像素） |
-| `hasLocation` | `boolean` | 否 | 是否必须有位置信息 |
-| `keywords` | `string[]` | 是 | 视觉关键词列表，用于匹配 `visualTags` |
-| `visualConcepts` | `object[]` | 否 | 视觉概念列表，每个概念包含多个同义词 |
-| `visualConcepts[].name` | `string` | 是 | 概念名称（用户语言） |
-| `visualConcepts[].matchAny` | `string[]` | 是 | 匹配任一词即可（OR 关系） |
-| `ocrKeywords` | `string[]` | 否 | OCR 文字关键词列表 |
-| `ocrRegexes` | `string[]` | 否 | OCR 正则表达式列表（用于银行卡尾号等） |
-| `sensitiveTypes` | `string[]` | 否 | 敏感类型过滤，可选 `"bank_card"`、`"id_card"`、`"passport"`、`"document"` |
-| `requiresOCR` | `boolean` | 否 | 是否需要 OCR 处理 |
-| `count` | `integer` | 否 | 期望返回的图片数量，默认 9，最大 50 |
-| `confidence` | `number` | 否 | 解析置信度 0~1，可选 |
+| `filters` | `object` | 否 | 元数据硬条件（查正排档案，不走倒排） |
+| `filters.dateRange` | `object` | 否 | 时间范围 |
+| `filters.dateRange.start` | `string` | 否 | 起始日期，`YYYY-MM-DD` |
+| `filters.dateRange.end` | `string` | 否 | 结束日期，`YYYY-MM-DD` |
+| `filters.locationBounds` | `object[]` | 否 | 位置边界（任一边界匹配即可） |
+| `filters.mediaTypes` | `string[]` | 否 | `"image"` / `"video"` |
+| `filters.assetTypes` | `string[]` | 否 | `"screenshot"` / `"live"` / `"screen_recording"` |
+| `filters.minSizeMB` / `maxSizeMB` | `number` | 否 | 文件大小（MB） |
+| `filters.minPixelWidth` / `minPixelHeight` | `integer` | 否 | 最小像素尺寸 |
+| `filters.hasLocation` | `boolean` | 否 | 是否必须有 GPS |
+| `must` | `object` | 是 | 倒排交集条件 |
+| `must.visualTagsAll` | `string[]` | 是 | 视觉 tag，**AND** 语义（每组客户端扩展同义词后做交集） |
+| `must.sensitiveTypes` | `string[]` | 是 | `id_card` / `bank_card` / `passport` / `document` |
+| `must.ocrContainsAll` | `string[]` | 是 | OCR 须同时包含的文字 |
+| `count` | `integer` | 是 | 返回数量上限，默认 1000，最大 1000 |
+| `confidence` | `number` | 否 | 解析置信度 0~1 |
 
 ### 响应规则
 
-- 未返回的字段表示**不过滤**（即不限制）
-- `locationBounds` 数组中可包含多个位置区域，图片匹配任一区域即可
-- `visualConcepts` 中的概念之间是 **AND** 关系，每个概念内部的 `matchAny` 是 **OR** 关系
-- `mediaTypes` 为空数组表示不过滤类型
-- `assetTypes` 为空数组表示不过滤资源类型
-- `count` 未返回或为 0 时，默认返回 9 张；最大值限制为 50
-- `keywords` 必须返回，可以是空数组
-- `keywords` 中的每个词应是视觉概念的规范标签（英文小写，不带下划线）
-- 如需表达复合概念，服务器应拆分为多个独立词（如 `red_clothing` 拆为 `["red", "clothing"]`）
+- `filters` 中未返回的字段表示**不过滤**
+- `must.visualTagsAll` 每项为 `availableTags` 中的原样 tag key；**组间 AND**；优先最少 tag；同义词由客户端组内扩展
+- `must.sensitiveTypes` 不进 `availableTags`，由客户端 `sensitivePostings` 检索
+- **已废弃**（v2 不再返回）：`keywords`、`visualConcepts`、`should`、`ocrKeywords`、`ocrRegexes`、`requiresOCR` 及顶层扁平 `dateRange` 等
+- 服务端对 LLM 旧格式输出做兼容归一化后统一返回 SearchPlan
+- `count` 默认 1000，最大 1000
 
 ### 响应示例
 
@@ -224,32 +348,14 @@ def verify_sign(query: str, sign: str, secret: str) -> bool:
 
 ```json
 {
-  "summary": "去年在海南拍的海边人物照片",
-  "dateRange": {
-    "start": "2025-01-01",
-    "end": "2025-12-31"
+  "summary": "Beach person photos in Hainan last year",
+  "filters": {
+    "dateRange": {"start": "2025-01-01", "end": "2025-12-31"},
+    "locationBounds": [{"name": "Hainan", "minLatitude": 18.0, "maxLatitude": 20.0, "minLongitude": 108.0, "maxLongitude": 111.0}],
+    "mediaTypes": ["image"]
   },
-  "locationBounds": [
-    {
-      "name": "海南",
-      "minLatitude": 18.0,
-      "maxLatitude": 20.0,
-      "minLongitude": 108.0,
-      "maxLongitude": 111.0
-    }
-  ],
-  "mediaTypes": ["image"],
-  "minPixelWidth": 800,
-  "minPixelHeight": 800,
-  "hasLocation": true,
-  "keywords": ["beach", "sea", "ocean", "person", "face", "portrait"],
-  "visualConcepts": [
-    {
-      "name": "海边",
-      "matchAny": ["beach", "shore", "seaside", "coast"]
-    }
-  ],
-  "count": 9,
+  "must": {"visualTagsAll": ["beach", "person"], "sensitiveTypes": [], "ocrContainsAll": []},
+  "count": 1000,
   "confidence": 0.85
 }
 ```
@@ -258,10 +364,10 @@ def verify_sign(query: str, sign: str, secret: str) -> bool:
 
 ```json
 {
-  "summary": "大于5MB的视频",
-  "mediaTypes": ["video"],
-  "minSizeMB": 5,
-  "keywords": []
+  "summary": "Videos larger than 5MB",
+  "filters": {"mediaTypes": ["video"], "minSizeMB": 5},
+  "must": {"visualTagsAll": [], "sensitiveTypes": [], "ocrContainsAll": []},
+  "count": 1000
 }
 ```
 
@@ -269,20 +375,10 @@ def verify_sign(query: str, sign: str, secret: str) -> bool:
 
 ```json
 {
-  "summary": "穿红色衣服的人",
-  "keywords": ["person", "people", "human", "red", "clothing"],
+  "summary": "Person in red clothing",
+  "must": {"visualTagsAll": ["person", "red_clothing"], "sensitiveTypes": [], "ocrContainsAll": []},
+  "count": 1000,
   "confidence": 0.95
-}
-```
-
-用户查询：`"找一张有白色汽车的图片"`
-
-```json
-{
-  "summary": "白色汽车图片",
-  "count": 1,
-  "keywords": ["car", "vehicle", "automobile", "white"],
-  "confidence": 0.9
 }
 ```
 
@@ -290,22 +386,10 @@ def verify_sign(query: str, sign: str, secret: str) -> bool:
 
 ```json
 {
-  "summary": "身份证图片",
-  "sensitiveTypes": ["id_card"],
-  "mediaTypes": ["image"],
-  "keywords": []
-}
-```
-
-用户查询：`"银行卡尾号是1234的图片"`
-
-```json
-{
-  "summary": "包含银行卡尾号1234的图片",
-  "sensitiveTypes": ["bank_card"],
-  "ocrRegexes": ["\\d{0,15}1234\\b"],
-  "requiresOCR": true,
-  "keywords": ["card", "bank"]
+  "summary": "ID card photos",
+  "filters": {"mediaTypes": ["image"]},
+  "must": {"visualTagsAll": [], "sensitiveTypes": ["id_card"], "ocrContainsAll": []},
+  "count": 1000
 }
 ```
 
@@ -427,205 +511,95 @@ score = matchedKeywordCount
 
 ### 技术选型
 
-- **语言**：Python / Node.js / Go（任选）
-- **LLM 接入**：OpenAI API / Claude API / 本地部署模型
-- **部署**：云服务器 / Serverless
+- **语言**：Go
+- **LLM 接入**：DeepSeek API
+- **部署**：云服务器 / Nginx 反向代理
 
 ### 核心逻辑
 
 #### LLM 提示词模板
 
+使用 DeepSeek API，提示词和返回内容全部使用英文：
+
 ```text
-你是一个图片搜索意图解析器。
+You are a photo search intent parser. Return only valid JSON, no Markdown.
 
-用户输入: {query}
-语言: {locale}
-当前日期: {current_date}
+User query: {query}
+Query language: {locale}
+Current date: {current_date}
 
-图片属性 Schema:
+Schema:
 {
-  "summary": "short user-facing summary",
-  "mediaTypes": ["image" | "video"],
-  "assetTypes": ["screenshot" | "live" | "screen_recording"],
-  "dateRange": {"start": "yyyy-MM-dd", "end": "yyyy-MM-dd"},
-  "locations": ["place names"],
-  "locationBounds": [{"name":"", "minLatitude":0, "maxLatitude":0, "minLongitude":0, "maxLongitude":0}],
-  "minSizeMB": 0,
-  "maxSizeMB": 0,
+  "summary": "short summary",
+  "mediaTypes": ["image"|"video"],
+  "assetTypes": ["screenshot"|"live"|"screen_recording"],
+  "dateRange": {"start":"YYYY-MM-DD","end":"YYYY-MM-DD"},
+  "locationBounds": [{"name":"","minLatitude":0,"maxLatitude":0,"minLongitude":0,"maxLongitude":0}],
+  "minSizeMB": 0, "maxSizeMB": 0,
   "hasLocation": true,
   "keywords": [],
-  "visualTags": ["person", "red_clothing", "blue_clothing", "white_clothing", "black_clothing", "yellow_clothing", "green_clothing", "car", "food", "beach", "dog", "cat", "pet", "building", "sky", "flower", "document"],
-  "visualConcepts": [{"name": "concept name in user's language", "matchAny": ["english_vision_label", "synonym"]}],
-  "ocrKeywords": [],
-  "ocrRegexes": [],
-  "sensitiveTypes": ["bank_card", "id_card", "passport", "document"],
-  "requiresOCR": false
+  "visualConcepts": [{"name":"","matchAny":["","synonym"]}],
+  "ocrKeywords": [], "ocrRegexes": [],
+  "sensitiveTypes": ["bank_card","id_card","passport","document"],
+  "requiresOCR": false,
+  "count": 9,
+  "confidence": 0
 }
 
-请从用户输入中提取以下信息，以 JSON 格式返回：
+Rules:
+1. summary: short English description of search condition (required)
+2. dateRange: resolve relative dates (last year, past month, past week, this year) from Current date
+3. locationBounds: if place mentioned, return latitude/longitude bounds
+4. hasLocation: only when user explicitly asks for WITH/WITHOUT location (not for visual scenes)
+5. mediaTypes: ["image"] or ["video"] based on query
+6. minSizeMB/maxSizeMB: in MB (e.g., "larger than 5M" → 5)
+7. count: number of photos requested (default 9 if not specified)
+8. keywords (required): split compound words, include synonyms (e.g., "car" → ["car","vehicle","automobile"])
+9. visualConcepts: for abstract concepts, matchAny contains synonyms (concepts ANDed, words ORed)
+10. ocrKeywords: text keywords to find in images
+11. ocrRegexes: regex for card tail numbers (e.g., "\d{0,15}1234\\b")
+12. sensitiveTypes: ["bank_card","id_card","passport","document"]
+13. requiresOCR: true when text recognition needed
+14. confidence: 0-1 float
 
-1. summary（搜索摘要）
-   - 用用户语言简短描述搜索条件
-   - 例如："去年在海南拍的海边人物照片"
-
-2. dateRange（时间范围）
-   - 格式: {{"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}
-   - "去年" → 上年1月1日 到 上年12月31日
-   - "最近一个月" → 当前日期往前推30天
-   - "最近一周" → 当前日期往前推7天
-   - "今年" → 今年1月1日 到 12月31日
-   - 没有时间信息 → 不返回此字段
-
-3. locationBounds（位置边界）
-   - 格式: [{{"name": "地名", "minLatitude": 最小纬度, "maxLatitude": 最大纬度, "minLongitude": 最小经度, "maxLongitude": 最大经度}}]
-   - 如果用户提到地名，返回该地区的经纬度范围
-   - 例如：海南 → [{{"name": "海南", "minLatitude": 18.0, "maxLatitude": 20.0, "minLongitude": 108.0, "maxLongitude": 111.0}}]
-   - 没有位置信息 → 不返回此字段
-
-4. hasLocation（是否需要位置）
-   - 只有用户明确要求"有位置"或"没有位置"时才设置
-   - 不要为视觉场景（如海边、城市）设置此字段
-
-5. mediaTypes（媒体类型）
-   - 可选值: ["image"] 或 ["video"] 或 ["image", "video"]
-   - "照片"/"图片" → ["image"]
-   - "视频" → ["video"]
-   - 没有指定 → 不返回此字段
-
-6. assetTypes（资源类型）
-   - 可选值: ["screenshot"] 或 ["live"] 或 ["screen_recording"] 或组合
-   - "截图" → ["screenshot"]
-   - "实况照片" → ["live"]
-   - "屏幕录制" → ["screen_recording"]
-   - 没有指定 → 不返回此字段
-
-7. minSizeMB / maxSizeMB（文件大小范围）
-   - 单位：MB
-   - "大于5M" → minSizeMB: 5
-   - "小于10M" → maxSizeMB: 10
-   - 没有大小要求 → 不返回此字段
-
-8. count（期望返回的图片数量）
-   - 用户说"找一张"/"给我看一张" → 1
-   - 用户说"找几张"/"找5张" → 对应数量
-   - 默认 → 不返回此字段（客户端默认9张）
-
-9. keywords（视觉关键词列表）
-   - 从用户描述中提取视觉相关的概念
-   - **重要**：复合词需拆分为独立词，不使用下划线
-   - 例如：
-     * "红色衣服" → ["red", "clothing"]
-     * "蓝色汽车" → ["blue", "car", "vehicle"]
-     * "海边的人" → ["beach", "sea", "ocean", "person", "people", "human"]
-   - **重要**：同义词/近义词都要包含
-     * "车" → ["car", "vehicle", "automobile"]
-     * "人" → ["person", "people", "human"]
-     * "宠物" → ["dog", "cat", "pet", "animal"]
-   - 只提取视觉相关的概念，忽略时间、位置、大小等已在其他字段处理的信息
-
-10. visualConcepts（视觉概念）
-    - 用于表达更抽象的概念，每个概念包含多个同义词
-    - 概念之间是 AND 关系，概念内的词是 OR 关系
-    - 例如："抓螃蟹" → {{"name": "抓螃蟹", "matchAny": ["crab", "shellfish", "seafood"]}}
-    - 只添加可能在图像中可见的概念
-    - 如果 keywords 已经足够表达，可以不返回 visualConcepts
-
-11. ocrKeywords（OCR 文字关键词）
-    - 如果用户想找包含特定文字的图片，提取这些文字关键词
-    - 例如："包含Hello的图片" → ["hello"]
-    - 没有文字要求 → 不返回此字段
-
-12. ocrRegexes（OCR 正则表达式）
-    - 用于银行卡尾号等需要精确匹配的场景
-    - 示例：尾号 1234 → "\\d{0,15}1234\\b"
-    - 正则应在 OCR 文本中任意位置匹配，不限于末尾
-    - 没有正则需求 → 不返回此字段
-
-13. sensitiveTypes（敏感类型）
-    - 可选值: ["bank_card"] 或 ["id_card"] 或 ["passport"] 或 ["document"] 或组合
-    - "身份证" → ["id_card"]
-    - "银行卡" → ["bank_card"]
-    - "护照" → ["passport"]
-    - 没有敏感类型要求 → 不返回此字段
-
-14. requiresOCR（是否需要 OCR）
-    - 当需要识别文字内容时设置为 true
-    - 例如：查找银行卡尾号时需要 OCR
-
-15. confidence（解析置信度）
-    - 0~1 之间的小数
-    - 确定性高的查询（如"红色汽车"）→ 0.95
-    - 确定性低的查询（如"好玩的图片"）→ 0.5
-
-只返回 JSON，不要其他内容。
-
-示例输出：
-{{
-  "summary": "去年在海南拍的海边人物照片",
-  "dateRange": {{"start": "2025-01-01", "end": "2025-12-31"}},
-  "locationBounds": [{{"name": "海南", "minLatitude": 18.0, "maxLatitude": 20.0, "minLongitude": 108.0, "maxLongitude": 111.0}}],
-  "mediaTypes": ["image"],
-  "minSizeMB": 5,
-  "count": 1,
-  "keywords": ["person", "people", "human", "red", "clothing"],
-  "visualConcepts": [{{"name": "海边", "matchAny": ["beach", "shore", "seaside"]}}],
-  "confidence": 0.9
-}}
+Omit fields with no information. Return only JSON.
 ```
 
-#### Python 实现
+#### Go 实现概要
 
-```python
-def parse_query(query: str, locale: str, current_date: str) -> SearchCondition:
-    """
-    调用大模型解析用户搜索意图
-    """
-    prompt = LLM_PROMPT_TEMPLATE.format(
-        query=query,
-        locale=locale,
-        current_date=current_date
-    )
-    
-    llm_response = call_llm(prompt)
-    return json.loads(llm_response)
+服务器使用 Go 语言实现，核心文件：
+
+```
+src/go/
+├── main.go       # 入口，路由配置，日志初始化
+├── handler.go    # HTTP 处理器，请求解析，签名验证
+├── deepseek.go   # DeepSeek API 客户端
+├── prompt.go     # LLM 提示词模板
+└── logger.go     # 日志记录（按日期分文件）
 ```
 
-### 位置解析参考
+**核心流程**：
 
-服务器需要维护一个常见地名 → 经纬度范围的映射表，或调用地理编码 API：
+1. 接收 POST `/smart-search` 请求
+2. 验证 `query`、`locale`、`sign` 必填字段
+3. MD5 签名验证：`MD5(query + serverSecret)`
+4. 调用 DeepSeek API 解析查询
+5. 规范化响应（确保 `keywords` 存在，`count` 在 1-50 范围）
+6. 返回 JSON 结果
 
-```python
-LOCATION_MAP = {
-    "海南": {"lat": (18.0, 20.0), "lon": (108.0, 111.0)},
-    "北京": {"lat": (39.4, 41.1), "lon": (115.7, 117.5)},
-    "上海": {"lat": (30.9, 31.7), "lon": (121.0, 122.0)},
-    # ... 更多地名
-}
-```
+**日志**：
 
-### 时间解析参考
+- 日志目录：`/home/www/websites/cleaner.digsaw.cc/log`
+- 按日期分文件：`YYYY-MM-DD.log`
+- 自动清理：每天凌晨 2 点清理超过 100 天的日志
 
-```python
-from datetime import datetime, timedelta
+### 位置解析
 
-def parse_relative_time(text: str, now: datetime) -> tuple:
-    """解析相对时间表达式"""
-    if "去年" in text:
-        start = datetime(now.year - 1, 1, 1)
-        end = datetime(now.year - 1, 12, 31)
-    elif "今年" in text:
-        start = datetime(now.year, 1, 1)
-        end = datetime(now.year, 12, 31)
-    elif "最近一个月" in text or "上个月" in text:
-        start = now - timedelta(days=30)
-        end = now
-    elif "最近一周" in text:
-        start = now - timedelta(days=7)
-        end = now
-    else:
-        return None, None
-    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
-```
+大模型直接返回位置的经纬度范围，无需服务器维护位置映射表。
+
+### 时间解析
+
+大模型根据 `Current date` 和用户查询中的相对时间表达式（去年、今年、最近一周等）自动计算日期范围。
 
 ## 客户端实现方案
 
@@ -835,7 +809,7 @@ func smartSearch(query: String) async throws -> [PHAsset] {
 |---|---|---|
 | 请求体无效 | `400` | `{"error": "invalid_request", "message": "query is required"}` |
 | 签名验证失败 | `401` | `{"error": "unauthorized", "message": "invalid signature"}` |
-| 解析失败 | `200` | `{"keywords": [], "confidence": 0}` |
+| 解析失败 | `200` | 空 SearchPlan：`must` 全空数组，`count`: 1000，`confidence`: 0 |
 | 服务器内部错误 | `500` | `{"error": "internal_error", "message": "..."}` |
 
 ### 客户端
