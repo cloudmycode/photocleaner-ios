@@ -10,3 +10,6 @@ build/
 # Server config with secrets
 server/src/go/config.go
 server/src/go/smart-search
+
+# Local search index exports
+script/data/

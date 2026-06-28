@@ -198,7 +198,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     private let monthlyAlbumsCache = MonthlyAlbumsCache()
     private let detailGroupCache = DetailGroupCache()
     private var scanTask: Task<Void, Never>?
-    private var searchIndexTask: Task<Void, Never>?
     private var libraryChangeDebounce: Task<Void, Never>?
     private var hasRequestedStartupScan = false
     private var hasScheduledDetailGroupWarmup = false
@@ -1027,7 +1026,6 @@ final class PhotoLibraryService: NSObject, ObservableObject {
 
     func clearAnalysisCache() {
         scanTask?.cancel()
-        searchIndexTask?.cancel()
         hasScheduledDetailGroupWarmup = false
         didAttemptCachedDuplicateRestore = false
         didAttemptCachedBurstRestore = false
@@ -1035,6 +1033,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.initialAnalysisCompleteKey)
         UserDefaults.standard.removeObject(forKey: Self.mediaStorageRepairKey)
         Task {
+            await SearchIndexRunCoordinator.shared.cancel()
             try? await analysisCache.clear()
             try? await duplicateCache.clear()
             try? await searchIndexStore.clear()
@@ -1050,7 +1049,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             throw SmartSearchDebugExportError.photoAccessRequired
         }
 
-        searchIndexTask?.cancel()
+        await SearchIndexRunCoordinator.shared.cancel()
 
         let imageAssets = Self.fetchImageAssets()
         try await searchIndexStore.rebuildMetadata(for: imageAssets)
@@ -1064,14 +1063,18 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     }
 
     private func refreshSearchIndexInBackground() {
-        searchIndexTask?.cancel()
-        searchIndexTask = Task.detached(priority: .background) {
-            let imageAssets = Self.fetchImageAssets()
-            let videoAssets = Self.fetchVideoAssets()
-            try? await PhotoSearchIndexStore.shared.rebuildMetadata(
-                for: imageAssets + videoAssets
-            )
-            await Self.indexSearchImagesIfNeeded(for: imageAssets)
+        Task {
+            await SearchIndexRunCoordinator.shared.start(force: false) {
+#if DEBUG
+                SearchOCRDebugLog.info("background index task started")
+#endif
+                let imageAssets = Self.fetchImageAssets()
+                let videoAssets = Self.fetchVideoAssets()
+                try? await PhotoSearchIndexStore.shared.rebuildMetadata(
+                    for: imageAssets + videoAssets
+                )
+                await Self.indexSearchImagesIfNeeded(for: imageAssets)
+            }
         }
     }
 
@@ -1115,61 +1118,386 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     }
 
     private func startSearchOCRIndexing(for assets: [PHAsset]) {
-        searchIndexTask?.cancel()
-        searchIndexTask = Task.detached(priority: .background) {
-            await Self.indexSearchImagesIfNeeded(for: assets)
+        Task {
+            await SearchIndexRunCoordinator.shared.start(force: true) {
+                await Self.indexSearchImagesIfNeeded(for: assets)
+            }
         }
     }
 
     nonisolated private static func indexSearchImagesIfNeeded(for assets: [PHAsset]) async {
+#if DEBUG
+        let summary = await PhotoSearchIndexStore.shared.ocrIndexDebugSummary(for: assets)
+        SearchOCRDebugLog.info(
+            "stats \(summary) langs=\(SearchOCRSettings.recognitionLanguages().joined(separator: ","))"
+        )
+#endif
         let ocrPending = await PhotoSearchIndexStore.shared.assetsNeedingOCR(from: assets)
         let visualPending = await PhotoSearchIndexStore.shared.imageAssetsNeedingVisualIndex(from: assets)
         let pendingIDs = Set((ocrPending + visualPending).map(\.localIdentifier))
-        let pending = assets.filter { pendingIDs.contains($0.localIdentifier) }
-        var batch: [(asset: PHAsset, ocrText: String, visualTags: [String])] = []
-        batch.reserveCapacity(12)
-        for (index, asset) in pending.enumerated() {
-            guard !Task.isCancelled else { return }
-            let analysis = await searchImageAnalysis(for: asset)
-            batch.append((asset, analysis.ocrText, analysis.visualTags))
-            if batch.count >= 12 {
-                try? await PhotoSearchIndexStore.shared.updateSearchAnalyses(batch)
-                batch.removeAll(keepingCapacity: true)
+        let pending = assets
+            .filter { pendingIDs.contains($0.localIdentifier) }
+            .sorted {
+                ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
             }
-            if index.isMultiple(of: 5) {
-                await Task.yield()
+#if DEBUG
+        SearchOCRDebugLog.info(
+            "start pending=\(pending.count) probe=\(SearchOCRSettings.maxImageProbeEdge) ocrEdge=\(SearchOCRSettings.maxImageEdge) workers=\(SearchOCRSettings.indexConcurrency)"
+        )
+#endif
+        guard !pending.isEmpty else { return }
+
+        let visualStarted = CFAbsoluteTimeGetCurrent()
+        let ocrQueue = await indexVisualTagsPass(for: pending)
+#if DEBUG
+        let visualSeconds = CFAbsoluteTimeGetCurrent() - visualStarted
+        SearchOCRDebugLog.info(
+            "phase1 visual done \(pending.count - ocrQueue.count)/\(pending.count) skip, ocrQueue=\(ocrQueue.count) (\(String(format: "%.1f", visualSeconds))s)"
+        )
+#endif
+        guard !ocrQueue.isEmpty else { return }
+
+        let ocrStarted = CFAbsoluteTimeGetCurrent()
+        await indexOCRPass(for: ocrQueue)
+#if DEBUG
+        let ocrSeconds = CFAbsoluteTimeGetCurrent() - ocrStarted
+        SearchOCRDebugLog.info(
+            "phase2 ocr done \(ocrQueue.count)/\(ocrQueue.count) (\(String(format: "%.1f", ocrSeconds))s)"
+        )
+#endif
+    }
+
+    /// 阶段 1：384px 分类 + 视觉 tag；~84% 直接跳过 OCR
+    nonisolated private static func indexVisualTagsPass(for pending: [PHAsset]) async -> [PHAsset] {
+        var skipBatch: [(asset: PHAsset, ocrText: String, visualTags: [String])] = []
+        skipBatch.reserveCapacity(12)
+        var ocrQueue: [PHAsset] = []
+        ocrQueue.reserveCapacity(pending.count / 5)
+        var visualOnlyBatch: [(asset: PHAsset, visualTags: [String])] = []
+        visualOnlyBatch.reserveCapacity(12)
+        let batchLock = NSLock()
+        var completed = 0
+
+        await withTaskGroup(of: (asset: PHAsset, needsOCR: Bool, visualTags: [String], index: Int).self) { group in
+            var nextIndex = 0
+            let workerCount = max(1, SearchOCRSettings.indexConcurrency)
+
+            func enqueue(_ index: Int) {
+                guard index < pending.count else { return }
+                let asset = pending[index]
+                group.addTask {
+                    let result = await scanVisualTags(for: asset)
+                    return (asset, result.needsOCR, result.visualTags, index)
+                }
+            }
+
+            while nextIndex < min(workerCount, pending.count) {
+                enqueue(nextIndex)
+                nextIndex += 1
+            }
+
+            for await result in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+
+                batchLock.lock()
+                completed += 1
+                if result.needsOCR {
+                    ocrQueue.append(result.asset)
+                    visualOnlyBatch.append((result.asset, result.visualTags))
+                    if visualOnlyBatch.count >= 12 {
+                        let flush = visualOnlyBatch
+                        visualOnlyBatch.removeAll(keepingCapacity: true)
+                        batchLock.unlock()
+                        try? await PhotoSearchIndexStore.shared.updateVisualAnalyses(flush)
+                    } else {
+                        batchLock.unlock()
+                    }
+                } else {
+                    skipBatch.append((result.asset, "", result.visualTags))
+                    if skipBatch.count >= 12 {
+                        let flush = skipBatch
+                        skipBatch.removeAll(keepingCapacity: true)
+                        batchLock.unlock()
+                        try? await PhotoSearchIndexStore.shared.updateSearchAnalyses(flush)
+                    } else {
+                        batchLock.unlock()
+                    }
+                }
+
+                if nextIndex < pending.count {
+                    enqueue(nextIndex)
+                    nextIndex += 1
+                }
             }
         }
-        try? await PhotoSearchIndexStore.shared.updateSearchAnalyses(batch)
+
+        batchLock.lock()
+        let remainingSkip = skipBatch
+        let remainingVisual = visualOnlyBatch
+        batchLock.unlock()
+        try? await PhotoSearchIndexStore.shared.updateSearchAnalyses(remainingSkip)
+        try? await PhotoSearchIndexStore.shared.updateVisualAnalyses(remainingVisual)
+        return ocrQueue
+    }
+
+    /// 阶段 2：仅 OCR 候选，720px
+    nonisolated private static func indexOCRPass(for assets: [PHAsset]) async {
+        var batch: [(asset: PHAsset, text: String)] = []
+        batch.reserveCapacity(12)
+        let batchLock = NSLock()
+        var completed = 0
+
+        await withTaskGroup(of: (asset: PHAsset, text: String, index: Int).self) { group in
+            var nextIndex = 0
+            let workerCount = max(1, SearchOCRSettings.indexConcurrency)
+
+            func enqueue(_ index: Int) {
+                guard index < assets.count else { return }
+                let asset = assets[index]
+                group.addTask {
+                    let text = await recognizeSearchOCR(for: asset, index: index, total: assets.count)
+                    return (asset, text, index)
+                }
+            }
+
+            while nextIndex < min(workerCount, assets.count) {
+                enqueue(nextIndex)
+                nextIndex += 1
+            }
+
+            for await result in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+
+                batchLock.lock()
+                batch.append((result.asset, result.text))
+                completed += 1
+                let shouldFlush = batch.count >= 12
+                let flushBatch = shouldFlush ? batch : nil
+                if shouldFlush {
+                    batch.removeAll(keepingCapacity: true)
+                }
+                batchLock.unlock()
+
+                if let flushBatch {
+                    try? await PhotoSearchIndexStore.shared.updateOCRTexts(
+                        flushBatch.map { ($0.asset, $0.text) }
+                    )
+                }
+
+                if nextIndex < assets.count {
+                    enqueue(nextIndex)
+                    nextIndex += 1
+                }
+            }
+        }
+
+        batchLock.lock()
+        let remaining = batch
+        batchLock.unlock()
+        try? await PhotoSearchIndexStore.shared.updateOCRTexts(remaining.map { ($0.asset, $0.text) })
+#if DEBUG
+        SearchOCRDebugLog.info("finished ocr \(completed)/\(assets.count)")
+#endif
+    }
+
+    nonisolated private static func scanVisualTags(for asset: PHAsset) async -> (needsOCR: Bool, visualTags: [String]) {
+        guard let probe = await requestSearchIndexImage(
+            for: asset,
+            maxEdge: SearchOCRSettings.maxImageProbeEdge
+        ) else {
+            return (false, [])
+        }
+
+        let classified = classificationTags(for: probe.cgImage)
+        let gate = SearchOCRSettings.ocrGateDecision(
+            classificationTags: classified,
+            isScreenshot: asset.mediaSubtypes.contains(.photoScreenshot),
+            probeImage: probe.cgImage,
+            probeOrientation: probe.orientation
+        )
+        let visualTags = SearchOCRSettings.lightweightVisualTags(from: classified)
+        return (gate.shouldRun, visualTags)
+    }
+
+    nonisolated private static func recognizeSearchOCR(
+        for asset: PHAsset,
+        index: Int = 0,
+        total: Int = 1
+    ) async -> String {
+        guard let payload = await requestSearchIndexImage(
+            for: asset,
+            maxEdge: SearchOCRSettings.maxImageEdge
+        ) else {
+            return ""
+        }
+
+        let fastText = recognizeText(
+            cgImage: payload.cgImage,
+            orientation: payload.orientation,
+            level: .fast
+        ) ?? ""
+
+        let ocrText: String
+        let ocrMode: String
+        if SearchOCRSettings.shouldRefineWithAccurate(fastText: fastText) {
+            ocrText = recognizeText(
+                cgImage: payload.cgImage,
+                orientation: payload.orientation,
+                level: .accurate
+            ) ?? fastText
+            ocrMode = "fast+accurate"
+        } else if SearchOCRSettings.isUsefulSearchableOCR(fastText) {
+            ocrText = fastText
+            ocrMode = "fast"
+        } else {
+            ocrText = ""
+            ocrMode = "skip-garbage"
+        }
+
+#if DEBUG
+        let entries = await PhotoSearchIndexStore.shared.validEntries(for: [asset])
+        let visualTags = entries[asset.localIdentifier]?.visualTags ?? []
+        logSearchScanResult(
+            index: index,
+            total: total,
+            asset: asset,
+            ocrText: ocrText,
+            visualTags: visualTags,
+            imageLoaded: true,
+            ocrMode: ocrMode
+        )
+#endif
+        return ocrText
     }
 
     nonisolated private static func searchImageAnalysis(
-        for asset: PHAsset
+        for asset: PHAsset,
+        index: Int = 0,
+        total: Int = 1
     ) async -> (ocrText: String, visualTags: [String]) {
-        guard let image = await requestSearchAnalysisImage(for: asset),
-              let cgImage = image.cgImage else {
-            return ("", [])
+        let scan = await scanVisualTags(for: asset)
+        guard scan.needsOCR else {
+            return ("", scan.visualTags)
         }
-        return (
-            searchRecognizedText(for: cgImage) ?? "",
-            searchVisualTags(for: cgImage)
+        let ocrText = await recognizeSearchOCR(for: asset, index: index, total: total)
+        return (ocrText, scan.visualTags)
+    }
+
+#if DEBUG
+    nonisolated private static func logSearchScanResult(
+        index: Int,
+        total: Int,
+        asset: PHAsset,
+        ocrText: String,
+        visualTags: [String],
+        imageLoaded: Bool,
+        ocrMode: String
+    ) {
+        let sensitive = SensitiveTypeDetector.detect(ocrText: ocrText, visualTags: visualTags)
+        let fields = sensitive.contains("id_card")
+            ? IDCardFieldExtractor.extract(from: ocrText)
+            : IDCardFieldExtractor.Fields()
+        SearchOCRDebugLog.logScanResult(
+            index: index,
+            total: total,
+            asset: asset,
+            ocrText: ocrText,
+            visualTagCount: visualTags.count,
+            sensitiveTypes: sensitive,
+            idCardName: fields.name,
+            idCardNumber: fields.number,
+            imageLoaded: imageLoaded,
+            ocrMode: ocrMode
         )
     }
+#endif
 
-    nonisolated private static func searchRecognizedText(for asset: PHAsset) async -> String? {
-        guard let image = await requestSearchAnalysisImage(for: asset),
-              let cgImage = image.cgImage else {
-            return nil
-        }
-        return searchRecognizedText(for: cgImage)
+    private struct SearchOCRImagePayload {
+        let cgImage: CGImage
+        let orientation: CGImagePropertyOrientation
     }
 
-    nonisolated private static func searchRecognizedText(for cgImage: CGImage) -> String? {
+    nonisolated private static func requestSearchIndexImage(
+        for asset: PHAsset,
+        maxEdge: Int
+    ) async -> SearchOCRImagePayload? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = maxEdge <= SearchOCRSettings.maxImageProbeEdge
+                ? .fastFormat
+                : .highQualityFormat
+            options.resizeMode = .fast
+            options.isSynchronous = false
+
+            let sourceEdge = max(asset.pixelWidth, asset.pixelHeight)
+            let edge = min(sourceEdge, maxEdge)
+            let targetSize = CGSize(width: edge, height: edge)
+
+            var resumed = false
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                guard !resumed else { return }
+                let cancelled = info?[PHImageCancelledKey] as? Bool ?? false
+                let degraded = info?[PHImageResultIsDegradedKey] as? Bool ?? false
+                if cancelled || info?[PHImageErrorKey] != nil {
+                    resumed = true
+#if DEBUG
+                    let name = PHAssetResource.assetResources(for: asset).first?.originalFilename ?? "?"
+                    let err = info?[PHImageErrorKey]
+                    SearchOCRDebugLog.info(
+                        "image load fail \(name) cancelled=\(cancelled) error=\(String(describing: err))"
+                    )
+#endif
+                    continuation.resume(returning: nil)
+                    return
+                }
+                if degraded { return }
+                guard let image, let cgImage = image.cgImage else {
+                    resumed = true
+                    continuation.resume(returning: nil)
+                    return
+                }
+                resumed = true
+                continuation.resume(returning: SearchOCRImagePayload(
+                    cgImage: cgImage,
+                    orientation: SearchOCRSettings.visionOrientation(for: image)
+                ))
+            }
+        }
+    }
+
+    nonisolated private static func requestSearchOCRImage(
+        for asset: PHAsset
+    ) async -> SearchOCRImagePayload? {
+        await requestSearchIndexImage(for: asset, maxEdge: SearchOCRSettings.maxImageEdge)
+    }
+
+    nonisolated private static func recognizeText(
+        cgImage: CGImage,
+        orientation: CGImagePropertyOrientation,
+        level: VNRequestTextRecognitionLevel
+    ) -> String? {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["zh-Hans", "en-US"]
-        let handler = VNImageRequestHandler(cgImage: cgImage)
+        request.recognitionLevel = level
+        request.usesLanguageCorrection = level == .accurate
+        request.recognitionLanguages = SearchOCRSettings.recognitionLanguages()
+        request.minimumTextHeight = level == .fast ? 0.012 : 0.008
+        let handler = VNImageRequestHandler(
+            cgImage: cgImage,
+            orientation: orientation,
+            options: [:]
+        )
         do {
             try handler.perform([request])
             return request.results?
@@ -1183,9 +1511,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
     nonisolated private static func requestSearchAnalysisImage(for asset: PHAsset) async -> UIImage? {
         await withCheckedContinuation { continuation in
             let options = PHImageRequestOptions()
+            options.isNetworkAccessAllowed = true
             options.deliveryMode = .fastFormat
             options.resizeMode = .fast
-            options.isNetworkAccessAllowed = false
 
             var resumed = false
             PHImageManager.default().requestImage(
@@ -1196,9 +1524,16 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             ) { image, info in
                 let degraded = info?[PHImageResultIsDegradedKey] as? Bool ?? false
                 let cancelled = info?[PHImageCancelledKey] as? Bool ?? false
+                guard !cancelled else {
+                    if !resumed {
+                        resumed = true
+                        continuation.resume(returning: nil)
+                    }
+                    return
+                }
                 guard !resumed, !degraded else { return }
                 resumed = true
-                continuation.resume(returning: cancelled ? nil : image)
+                continuation.resume(returning: image)
             }
         }
     }
@@ -2435,6 +2770,37 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             }
         }
         return min(total / Double(max(samples, 1)) / 64, 1)
+    }
+}
+
+private actor SearchIndexRunCoordinator {
+    static let shared = SearchIndexRunCoordinator()
+    private var isRunning = false
+    private var currentTask: Task<Void, Never>?
+
+    func cancel() {
+        currentTask?.cancel()
+        currentTask = nil
+        isRunning = false
+    }
+
+    func start(force: Bool, operation: @escaping @Sendable () async -> Void) {
+        if force {
+            currentTask?.cancel()
+            isRunning = false
+        } else if isRunning {
+            return
+        }
+        isRunning = true
+        currentTask = Task.detached(priority: .utility) {
+            await operation()
+            await SearchIndexRunCoordinator.shared.finish()
+        }
+    }
+
+    private func finish() {
+        isRunning = false
+        currentTask = nil
     }
 }
 

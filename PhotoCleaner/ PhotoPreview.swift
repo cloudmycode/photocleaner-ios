@@ -2411,7 +2411,7 @@ struct AssetPreviewView: View {
 
                     VStack(spacing: 0) {
                         Spacer()
-                        ZStack(alignment: .bottomTrailing) {
+                        ZStack(alignment: .bottomLeading) {
                             if showDetail, isDetailBarPresented {
                                 LinearGradient(
                                     colors: [.clear, .black.opacity(0.65)],
@@ -2423,7 +2423,7 @@ struct AssetPreviewView: View {
                                 .allowsHitTesting(false)
                             }
 
-                            VStack(alignment: .trailing, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 8) {
                                 if showDetail, isDetailBarPresented {
                                     detailTextOverlay
                                         .transition(.opacity)
@@ -2498,7 +2498,7 @@ struct AssetPreviewView: View {
     }
 
     private var detailTextOverlay: some View {
-        VStack(alignment: .trailing, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(
                 asset.creationDate?
                     .formatted(date: .abbreviated, time: .shortened) ?? "-"
@@ -2508,7 +2508,7 @@ struct AssetPreviewView: View {
         }
         .font(.subheadline)
         .foregroundStyle(.white)
-        .multilineTextAlignment(.trailing)
+        .multilineTextAlignment(.leading)
         .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
     }
 

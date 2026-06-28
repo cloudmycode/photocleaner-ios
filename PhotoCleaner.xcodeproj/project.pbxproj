@@ -14,6 +14,13 @@
 		AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* SimilarAnalysisCache.swift */; };
 		AA0000000000000000000006 /* SmartSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001A /* SmartSearch.swift */; };
 		AA0000000000000000000007 /* ZoomableScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001B /* ZoomableScrollView.swift */; };
+		AA0000000000000000000008 /* SearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001C /* SearchEngine.swift */; };
+		AA0000000000000000000009 /* VisualSynonyms.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001D /* VisualSynonyms.swift */; };
+		AA000000000000000000000A /* SensitiveTypeDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001E /* SensitiveTypeDetector.swift */; };
+		AA000000000000000000000B /* IDCardFieldExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001F /* IDCardFieldExtractor.swift */; };
+		AA000000000000000000000C /* SmartSearchQueryParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000021 /* SmartSearchQueryParser.swift */; };
+		AA000000000000000000000D /* SearchOCRDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000022 /* SearchOCRDebugLog.swift */; };
+		AA000000000000000000000E /* SearchOCRSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000023 /* SearchOCRSettings.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +35,13 @@
 		AA0000000000000000000019 /* SimilarAnalysisCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarAnalysisCache.swift; sourceTree = "<group>"; };
 		AA000000000000000000001A /* SmartSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartSearch.swift; sourceTree = "<group>"; };
 		AA000000000000000000001B /* ZoomableScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableScrollView.swift; sourceTree = "<group>"; };
+		AA000000000000000000001C /* SearchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchEngine.swift; sourceTree = "<group>"; };
+		AA000000000000000000001D /* VisualSynonyms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualSynonyms.swift; sourceTree = "<group>"; };
+		AA000000000000000000001E /* SensitiveTypeDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensitiveTypeDetector.swift; sourceTree = "<group>"; };
+		AA000000000000000000001F /* IDCardFieldExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDCardFieldExtractor.swift; sourceTree = "<group>"; };
+		AA0000000000000000000021 /* SmartSearchQueryParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartSearchQueryParser.swift; sourceTree = "<group>"; };
+		AA0000000000000000000022 /* SearchOCRDebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchOCRDebugLog.swift; sourceTree = "<group>"; };
+		AA0000000000000000000023 /* SearchOCRSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchOCRSettings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +72,13 @@
 				AA0000000000000000000019 /* SimilarAnalysisCache.swift */,
 				AA000000000000000000001A /* SmartSearch.swift */,
 				AA000000000000000000001B /* ZoomableScrollView.swift */,
+				AA000000000000000000001C /* SearchEngine.swift */,
+				AA000000000000000000001D /* VisualSynonyms.swift */,
+				AA000000000000000000001E /* SensitiveTypeDetector.swift */,
+				AA000000000000000000001F /* IDCardFieldExtractor.swift */,
+				AA0000000000000000000021 /* SmartSearchQueryParser.swift */,
+				AA0000000000000000000022 /* SearchOCRDebugLog.swift */,
+				AA0000000000000000000023 /* SearchOCRSettings.swift */,
 				AA0000000000000000000013 /* Info.plist */,
 				AA0000000000000000000043 /* Resources */,
 			);
@@ -158,6 +179,13 @@
 				AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */,
 				AA0000000000000000000006 /* SmartSearch.swift in Sources */,
 				AA0000000000000000000007 /* ZoomableScrollView.swift in Sources */,
+				AA0000000000000000000008 /* SearchEngine.swift in Sources */,
+				AA0000000000000000000009 /* VisualSynonyms.swift in Sources */,
+				AA000000000000000000000A /* SensitiveTypeDetector.swift in Sources */,
+				AA000000000000000000000B /* IDCardFieldExtractor.swift in Sources */,
+				AA000000000000000000000C /* SmartSearchQueryParser.swift in Sources */,
+				AA000000000000000000000D /* SearchOCRDebugLog.swift in Sources */,
+				AA000000000000000000000E /* SearchOCRSettings.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

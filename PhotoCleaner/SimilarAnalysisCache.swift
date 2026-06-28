@@ -17,6 +17,14 @@ struct PhotoSearchIndexEntry: Codable {
     var visualIndexedAt: Date?
     var ocrText: String?
     var ocrIndexedAt: Date?
+    var sensitiveTypes: [String]?
+    var idCardName: String?
+    var idCardNumber: String?
+}
+
+struct PhotoSearchIndexSnapshot {
+    let tagPostings: [String: Set<String>]
+    let sensitivePostings: [String: Set<String>]
 }
 
 struct PhotoSearchDebugExport: Codable {
@@ -26,6 +34,8 @@ struct PhotoSearchDebugExport: Codable {
     let indexedAssetCount: Int
     let missingVisualTagCount: Int
     let missingOCRCount: Int
+    let pendingOCRCount: Int
+    let idCardCount: Int
     let searchInputs: [String]
     let entries: [PhotoSearchDebugExportEntry]
 }
@@ -47,6 +57,9 @@ struct PhotoSearchDebugExportEntry: Codable {
     let visualIndexedAt: Date?
     let ocrText: String?
     let ocrIndexedAt: Date?
+    let sensitiveTypes: [String]
+    let idCardName: String?
+    let idCardNumber: String?
 }
 
 actor PhotoSearchIndexStore {
@@ -57,9 +70,11 @@ actor PhotoSearchIndexStore {
 
     static let shared = PhotoSearchIndexStore()
 
-    private let algorithmVersion = 3
+    private let algorithmVersion = 6
     private let fileURL: URL
     private var entries: [String: PhotoSearchIndexEntry]?
+    private var tagPostings: [String: Set<String>] = [:]
+    private var sensitivePostings: [String: Set<String>] = [:]
 
     init() {
         let baseURL = FileManager.default.urls(
@@ -90,6 +105,14 @@ actor PhotoSearchIndexStore {
         })
     }
 
+    func searchIndex() -> PhotoSearchIndexSnapshot {
+        loadIfNeeded()
+        return PhotoSearchIndexSnapshot(
+            tagPostings: tagPostings,
+            sensitivePostings: sensitivePostings
+        )
+    }
+
     func rebuildMetadata(for assets: [PHAsset]) throws {
         loadIfNeeded()
         let existing = entries ?? [:]
@@ -101,20 +124,25 @@ actor PhotoSearchIndexStore {
             let id = asset.localIdentifier
             let signature = Self.signature(for: asset)
             let previous = existing[id]
-            let canReuseOCR = previous?.signature == signature
-            let canReuseVisual = previous?.signature == signature
-            updated[id] = Self.entry(
+            let canReuse = previous?.signature == signature
+            var entry = Self.entry(
                 for: asset,
                 signature: signature,
-                previousVisualTags: canReuseVisual ? previous?.visualTags : nil,
-                previousVisualIndexedAt: canReuseVisual ? previous?.visualIndexedAt : nil,
-                previousOCRText: canReuseOCR ? previous?.ocrText : nil,
-                previousOCRIndexedAt: canReuseOCR ? previous?.ocrIndexedAt : nil
+                previousVisualTags: canReuse ? previous?.visualTags : nil,
+                previousVisualIndexedAt: canReuse ? previous?.visualIndexedAt : nil,
+                previousOCRText: canReuse ? previous?.ocrText : nil,
+                previousOCRIndexedAt: canReuse ? previous?.ocrIndexedAt : nil,
+                previousSensitiveTypes: canReuse ? previous?.sensitiveTypes : nil
             )
+            if canReuse, let previous {
+                entry.idCardName = previous.idCardName
+                entry.idCardNumber = previous.idCardNumber
+            }
+            updated[id] = entry
         }
 
-        // Drop deleted assets from the index.
         entries = updated.filter { activeIDs.contains($0.key) }
+        rebuildPostings()
         try save()
     }
 
@@ -128,6 +156,24 @@ actor PhotoSearchIndexStore {
                 entry?.ocrIndexedAt == nil
         }
     }
+
+#if DEBUG
+    func ocrIndexDebugSummary(for assets: [PHAsset]) -> String {
+        loadIfNeeded()
+        let existing = entries ?? [:]
+        var pending = 0
+        var goodOCR = 0
+        for asset in assets where asset.mediaType == .image {
+            let entry = existing[asset.localIdentifier]
+            if entry?.ocrIndexedAt == nil {
+                pending += 1
+            } else if (entry?.ocrText ?? "").count > 50 {
+                goodOCR += 1
+            }
+        }
+        return "pending=\(pending) goodOCR=\(goodOCR) totalImages=\(assets.count)"
+    }
+#endif
 
     func updateOCRText(_ text: String, for asset: PHAsset) throws {
         loadIfNeeded()
@@ -161,20 +207,34 @@ actor PhotoSearchIndexStore {
         try save()
     }
 
+    func updateVisualAnalyses(_ values: [(asset: PHAsset, visualTags: [String])]) throws {
+        guard !values.isEmpty else { return }
+        loadIfNeeded()
+        for value in values {
+            upsertVisualTags(value.visualTags, for: value.asset)
+        }
+        try save()
+    }
+
     func updateSearchAnalyses(
         _ values: [(asset: PHAsset, ocrText: String, visualTags: [String])]
     ) throws {
         guard !values.isEmpty else { return }
         loadIfNeeded()
         for value in values {
-            upsertOCRText(value.ocrText, for: value.asset)
-            upsertVisualTags(value.visualTags, for: value.asset)
+            upsertSearchAnalysis(
+                ocrText: value.ocrText,
+                visualTags: value.visualTags,
+                for: value.asset
+            )
         }
         try save()
     }
 
     func clear() throws {
         entries = [:]
+        tagPostings = [:]
+        sensitivePostings = [:]
         if FileManager.default.fileExists(atPath: fileURL.path) {
             try FileManager.default.removeItem(at: fileURL)
         }
@@ -189,24 +249,16 @@ actor PhotoSearchIndexStore {
         return attributes[.size] as? Int64 ?? 0
     }
 
-    /// 本机 visualTags 去重列表，按出现频次降序；默认全量，最多 `limit` 个。
+    /// 本机 visualTags 去重列表，按倒排文档频次降序。
     func topVisualTags(limit: Int = 1000) -> [String] {
         loadIfNeeded()
-        guard let entries, limit > 0 else { return [] }
+        guard limit > 0 else { return [] }
 
-        var counts: [String: Int] = [:]
-        for entry in entries.values {
-            guard let tags = entry.visualTags, !tags.isEmpty else { continue }
-            for tag in tags {
-                let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-                counts[trimmed, default: 0] += 1
-            }
-        }
-
-        return counts
+        return tagPostings
             .sorted {
-                if $0.value != $1.value { return $0.value > $1.value }
+                if $0.value.count != $1.value.count {
+                    return $0.value.count > $1.value.count
+                }
                 return $0.key < $1.key
             }
             .prefix(limit)
@@ -225,7 +277,8 @@ actor PhotoSearchIndexStore {
                 previousVisualTags: nil,
                 previousVisualIndexedAt: nil,
                 previousOCRText: nil,
-                previousOCRIndexedAt: nil
+                previousOCRIndexedAt: nil,
+                previousSensitiveTypes: nil
             )
 
             return PhotoSearchDebugExportEntry(
@@ -244,7 +297,14 @@ actor PhotoSearchIndexStore {
                 visualTags: entry.visualTags ?? [],
                 visualIndexedAt: entry.visualIndexedAt,
                 ocrText: entry.ocrText,
-                ocrIndexedAt: entry.ocrIndexedAt
+                ocrIndexedAt: entry.ocrIndexedAt,
+                sensitiveTypes: entry.sensitiveTypes
+                    ?? SensitiveTypeDetector.detect(
+                        ocrText: entry.ocrText,
+                        visualTags: entry.visualTags
+                    ),
+                idCardName: entry.idCardName,
+                idCardNumber: entry.idCardNumber
             )
         }
 
@@ -259,9 +319,14 @@ actor PhotoSearchIndexStore {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .isEmpty
             },
+            pendingOCRCount: rows.count { $0.ocrIndexedAt == nil },
+            idCardCount: rows.count { $0.sensitiveTypes.contains("id_card") },
             searchInputs: [
                 "visualTags",
                 "ocrText",
+                "idCardName",
+                "idCardNumber",
+                "sensitiveTypes",
                 "creationDate",
                 "location",
                 "mediaType",
@@ -295,9 +360,24 @@ actor PhotoSearchIndexStore {
               let payload = try? JSONDecoder().decode(Payload.self, from: data),
               payload.version == algorithmVersion else {
             entries = [:]
+            rebuildPostings()
             return
         }
         entries = payload.entries
+        rebuildPostings()
+    }
+
+    private func applyIDCardFields(to entry: inout PhotoSearchIndexEntry) {
+        guard entry.sensitiveTypes?.contains("id_card") == true,
+              let ocr = entry.ocrText,
+              !ocr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            entry.idCardName = nil
+            entry.idCardNumber = nil
+            return
+        }
+        let fields = IDCardFieldExtractor.extract(from: ocr)
+        entry.idCardName = fields.name
+        entry.idCardNumber = fields.number
     }
 
     private func save() throws {
@@ -307,34 +387,88 @@ actor PhotoSearchIndexStore {
         try data.write(to: fileURL, options: .atomic)
     }
 
-    private func upsertOCRText(_ text: String, for asset: PHAsset) {
+    private func upsertSearchAnalysis(
+        ocrText: String,
+        visualTags: [String],
+        for asset: PHAsset
+    ) {
+        let id = asset.localIdentifier
         let signature = Self.signature(for: asset)
+        let previous = currentEntry(for: asset, signature: signature)
+        let sensitive = SensitiveTypeDetector.detect(ocrText: ocrText, visualTags: visualTags)
+
+        patchTagPostings(photoId: id, oldTags: previous?.visualTags, newTags: visualTags)
+        patchSensitivePostings(
+            photoId: id,
+            oldTypes: previous?.sensitiveTypes,
+            newTypes: sensitive
+        )
+
         var entry = Self.entry(
             for: asset,
             signature: signature,
-            previousVisualTags: currentEntry(for: asset, signature: signature)?.visualTags,
-            previousVisualIndexedAt: currentEntry(for: asset, signature: signature)?.visualIndexedAt,
+            previousVisualTags: visualTags,
+            previousVisualIndexedAt: Date(),
+            previousOCRText: ocrText,
+            previousOCRIndexedAt: Date(),
+            previousSensitiveTypes: sensitive.isEmpty ? nil : sensitive
+        )
+        entry.visualTags = visualTags
+        entry.visualIndexedAt = Date()
+        entry.ocrText = ocrText
+        entry.ocrIndexedAt = Date()
+        entry.sensitiveTypes = sensitive.isEmpty ? nil : sensitive
+        applyIDCardFields(to: &entry)
+        entries?[id] = entry
+#if DEBUG
+        if sensitive.contains("id_card") {
+            SearchOCRDebugLog.info(
+                "indexed id_card | \(SearchOCRDebugLog.assetLabel(asset)) | name=\(entry.idCardName ?? "-") | idNo=\(entry.idCardNumber ?? "-")"
+            )
+        }
+#endif
+    }
+
+    private func upsertOCRText(_ text: String, for asset: PHAsset) {
+        let id = asset.localIdentifier
+        let signature = Self.signature(for: asset)
+        let previous = currentEntry(for: asset, signature: signature)
+        let tags = previous?.visualTags ?? []
+        let sensitive = SensitiveTypeDetector.detect(ocrText: text, visualTags: tags)
+        var entry = Self.entry(
+            for: asset,
+            signature: signature,
+            previousVisualTags: previous?.visualTags,
+            previousVisualIndexedAt: previous?.visualIndexedAt,
             previousOCRText: text,
-            previousOCRIndexedAt: Date()
+            previousOCRIndexedAt: Date(),
+            previousSensitiveTypes: sensitive.isEmpty ? nil : sensitive
         )
         entry.ocrText = text
         entry.ocrIndexedAt = Date()
-        entries?[asset.localIdentifier] = entry
+        entry.sensitiveTypes = sensitive.isEmpty ? nil : sensitive
+        applyIDCardFields(to: &entry)
+        patchSensitivePostings(photoId: id, oldTypes: previous?.sensitiveTypes, newTypes: sensitive)
+        entries?[id] = entry
     }
 
     private func upsertVisualTags(_ tags: [String], for asset: PHAsset) {
+        let id = asset.localIdentifier
         let signature = Self.signature(for: asset)
+        let previous = currentEntry(for: asset, signature: signature)
         var entry = Self.entry(
             for: asset,
             signature: signature,
             previousVisualTags: tags,
             previousVisualIndexedAt: Date(),
-            previousOCRText: currentEntry(for: asset, signature: signature)?.ocrText,
-            previousOCRIndexedAt: currentEntry(for: asset, signature: signature)?.ocrIndexedAt
+            previousOCRText: previous?.ocrText,
+            previousOCRIndexedAt: previous?.ocrIndexedAt,
+            previousSensitiveTypes: previous?.sensitiveTypes
         )
         entry.visualTags = tags
         entry.visualIndexedAt = Date()
-        entries?[asset.localIdentifier] = entry
+        patchTagPostings(photoId: id, oldTags: previous?.visualTags, newTags: tags)
+        entries?[id] = entry
     }
 
     private func currentEntry(
@@ -354,7 +488,8 @@ actor PhotoSearchIndexStore {
         previousVisualTags: [String]?,
         previousVisualIndexedAt: Date?,
         previousOCRText: String?,
-        previousOCRIndexedAt: Date?
+        previousOCRIndexedAt: Date?,
+        previousSensitiveTypes: [String]?
     ) -> PhotoSearchIndexEntry {
         PhotoSearchIndexEntry(
             id: asset.localIdentifier,
@@ -370,8 +505,58 @@ actor PhotoSearchIndexStore {
             visualTags: previousVisualTags,
             visualIndexedAt: previousVisualIndexedAt,
             ocrText: previousOCRText,
-            ocrIndexedAt: previousOCRIndexedAt
+            ocrIndexedAt: previousOCRIndexedAt,
+            sensitiveTypes: previousSensitiveTypes,
+            idCardName: nil,
+            idCardNumber: nil
         )
+    }
+
+    private func rebuildPostings() {
+        tagPostings = [:]
+        sensitivePostings = [:]
+        guard let entries else { return }
+        for entry in entries.values {
+            insertPostings(for: entry)
+        }
+    }
+
+    private func insertPostings(for entry: PhotoSearchIndexEntry) {
+        let id = entry.id
+        for tag in entry.visualTags ?? [] {
+            tagPostings[tag, default: []].insert(id)
+        }
+        for type in entry.sensitiveTypes ?? [] {
+            sensitivePostings[type, default: []].insert(id)
+        }
+    }
+
+    private func patchTagPostings(photoId: String, oldTags: [String]?, newTags: [String]) {
+        for tag in oldTags ?? [] {
+            tagPostings[tag]?.remove(photoId)
+            if tagPostings[tag]?.isEmpty == true {
+                tagPostings.removeValue(forKey: tag)
+            }
+        }
+        for tag in newTags {
+            tagPostings[tag, default: []].insert(photoId)
+        }
+    }
+
+    private func patchSensitivePostings(
+        photoId: String,
+        oldTypes: [String]?,
+        newTypes: [String]
+    ) {
+        for type in oldTypes ?? [] {
+            sensitivePostings[type]?.remove(photoId)
+            if sensitivePostings[type]?.isEmpty == true {
+                sensitivePostings.removeValue(forKey: type)
+            }
+        }
+        for type in newTypes {
+            sensitivePostings[type, default: []].insert(photoId)
+        }
     }
 
     private static func assetTypes(for asset: PHAsset) -> [String] {
