@@ -22,6 +22,7 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
         scrollView.showsVerticalScrollIndicator = false
         scrollView.backgroundColor = .clear
         scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.isScrollEnabled = false
 
         let hostView = context.coordinator.hostingController.view!
         hostView.translatesAutoresizingMaskIntoConstraints = false
@@ -51,7 +52,7 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
         context.coordinator.hostingController.rootView = content()
         guard context.coordinator.lastResetTrigger != resetTrigger else { return }
         context.coordinator.lastResetTrigger = resetTrigger
-        scrollView.setZoomScale(1, animated: true)
+        context.coordinator.resetZoom(on: scrollView)
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
@@ -72,7 +73,15 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerContent(in: scrollView)
-            isZoomed = scrollView.zoomScale > 1.01
+            let zoomed = scrollView.zoomScale > 1.01
+            scrollView.isScrollEnabled = zoomed
+            isZoomed = zoomed
+        }
+
+        func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+            let zoomed = scale > 1.01
+            scrollView.isScrollEnabled = zoomed
+            isZoomed = zoomed
         }
 
         @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
@@ -85,6 +94,12 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
             let side = min(scrollView.bounds.width, scrollView.bounds.height) / 2
             let origin = CGPoint(x: point.x - side / 2, y: point.y - side / 2)
             scrollView.zoom(to: CGRect(origin: origin, size: CGSize(width: side, height: side)), animated: true)
+        }
+
+        func resetZoom(on scrollView: UIScrollView) {
+            scrollView.setZoomScale(1, animated: false)
+            scrollView.isScrollEnabled = false
+            isZoomed = false
         }
 
         private func centerContent(in scrollView: UIScrollView) {

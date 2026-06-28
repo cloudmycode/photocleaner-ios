@@ -2371,6 +2371,7 @@ private struct AssetPreviewHost<Content: View>: View {
     let onToggle: (IdentifiablePHAsset) -> Void
     @ViewBuilder let content: () -> Content
     @Namespace private var previewNamespace
+    @State private var activeSourceID = ""
 
     var body: some View {
         content()
@@ -2381,15 +2382,24 @@ private struct AssetPreviewHost<Content: View>: View {
                     assets: assets,
                     onClose: { item = nil },
                     isSelected: isSelected(wrapped.id),
-                    onToggle: { onToggle(wrapped) }
+                    onToggle: { onToggle(wrapped) },
+                    onTransitionSourceChange: { activeSourceID = $0 }
                 )
                 .toolbar(.hidden, for: .navigationBar)
                 .toolbar(.hidden, for: .tabBar)
                 .toolbar(.hidden, for: .bottomBar)
                 .background(TabBarVisibilityAnimator(isHidden: true).frame(width: 0, height: 0))
-                .navigationTransition(.zoom(sourceID: wrapped.id, in: previewNamespace))
+                .navigationTransition(.zoom(sourceID: activeSourceID, in: previewNamespace))
+                .onAppear {
+                    activeSourceID = wrapped.id
+                }
             }
             .background(TabBarVisibilityAnimator(isHidden: item != nil).frame(width: 0, height: 0))
+            .onChange(of: item?.id) { _, newID in
+                if newID == nil {
+                    activeSourceID = ""
+                }
+            }
     }
 }
 
@@ -2400,24 +2410,30 @@ struct AssetPreviewView: View {
     var onClose: () -> Void = {}
     var isSelected: Bool = false
     var onToggle: (() -> Void)? = nil
+    var onTransitionSourceChange: ((String) -> Void)? = nil
 
     init(
         asset: PHAsset,
         assets: [PHAsset] = [],
         onClose: @escaping () -> Void = {},
         isSelected: Bool = false,
-        onToggle: (() -> Void)? = nil
+        onToggle: (() -> Void)? = nil,
+        onTransitionSourceChange: ((String) -> Void)? = nil
     ) {
-        self.assets = assets.isEmpty ? [asset] : assets
+        let resolvedAssets = assets.isEmpty ? [asset] : assets
+        self.assets = resolvedAssets
+        let index = resolvedAssets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) ?? 0
+        _currentIndex = State(initialValue: index)
         _displayedAsset = State(initialValue: asset)
         self.onClose = onClose
         self.isSelected = isSelected
         self.onToggle = onToggle
+        self.onTransitionSourceChange = onTransitionSourceChange
     }
 
+    @State private var currentIndex: Int
     @State private var isZoomed = false
     @State private var zoomReset = 0
-    @State private var pagingOffset: CGFloat = 0
     @State private var showDetail = true
     @State private var isDetailBarPresented = false
     @State private var locationDescription: String = "-"
@@ -2428,84 +2444,106 @@ struct AssetPreviewView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.85)
+            Color.black
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { dismiss() }
 
-            GeometryReader { geo in
-                let fitted = mediaFittedSize(in: geo.size)
-                ZStack {
-                    ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
-                        mediaContent
-                            .frame(width: fitted.width, height: fitted.height)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                    }
-                    .frame(width: geo.size.width, height: geo.size.height)
-
-                    VStack(spacing: 0) {
-                        Spacer()
-                        ZStack(alignment: .bottomLeading) {
-                            if showDetail, isDetailBarPresented {
-                                LinearGradient(
-                                    colors: [.clear, .black.opacity(0.65)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                                .frame(height: Self.detailPanelHeight)
-                                .frame(maxWidth: .infinity)
-                                .allowsHitTesting(false)
-                            }
-
-                            VStack(alignment: .leading, spacing: 8) {
-                                if showDetail, isDetailBarPresented {
-                                    detailTextOverlay
-                                        .transition(.opacity)
-                                }
-                                if isDetailBarPresented {
-                                    detailButton
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 12)
+            Group {
+                if assets.count > 1 {
+                    TabView(selection: $currentIndex) {
+                        ForEach(Array(assets.enumerated()), id: \.element.localIdentifier) { index, asset in
+                            previewPage(for: asset)
+                                .tag(index)
                         }
                     }
-                    .frame(width: geo.size.width, height: geo.size.height)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .background(TabViewPagingDisabler(isDisabled: isZoomed))
+                } else {
+                    previewPage(for: displayedAsset)
                 }
-                .offset(x: isZoomed ? 0 : pagingOffset)
-                .simultaneousGesture(pageGesture)
-                .onTapGesture { dismiss() }
             }
             .ignoresSafeArea()
-            .onAppear {
-                isDetailBarPresented = true
-            }
-            .onChange(of: displayedAsset.localIdentifier) { _, _ in
-                zoomReset += 1
-                isZoomed = false
-                pagingOffset = 0
-                showDetail = true
-                isDetailBarPresented = true
-            }
+
+            detailOverlay
         }
         .background(Color.black)
+        .onAppear {
+            isDetailBarPresented = true
+            onTransitionSourceChange?(displayedAsset.localIdentifier)
+        }
+        .onChange(of: currentIndex) { _, index in
+            guard assets.indices.contains(index) else { return }
+            displayedAsset = assets[index]
+            onTransitionSourceChange?(displayedAsset.localIdentifier)
+            zoomReset += 1
+            isZoomed = false
+            showDetail = true
+            isDetailBarPresented = true
+        }
         .task(id: displayedAsset.localIdentifier) {
             await loadDetailMetadata()
         }
     }
 
+    private var detailOverlay: some View {
+        VStack(spacing: 0) {
+            Spacer()
+                .allowsHitTesting(false)
+            ZStack(alignment: .bottomLeading) {
+                if showDetail, isDetailBarPresented {
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.65)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: Self.detailPanelHeight)
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    if showDetail, isDetailBarPresented {
+                        detailTextOverlay
+                            .transition(.opacity)
+                    }
+                    if isDetailBarPresented {
+                        detailButton
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private func previewPage(for asset: PHAsset) -> some View {
+        GeometryReader { geo in
+            let fitted = mediaFittedSize(for: asset, in: geo.size)
+            ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
+                mediaContent(for: asset)
+                    .frame(width: fitted.width, height: fitted.height)
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
+            .onTapGesture { dismiss() }
+        }
+    }
+
     @ViewBuilder
-    private var mediaContent: some View {
-        if displayedAsset.mediaType == .video {
-            VideoPreviewSurface(asset: displayedAsset)
-        } else if displayedAsset.mediaSubtypes.contains(.photoLive) {
+    private func mediaContent(for asset: PHAsset) -> some View {
+        if asset.mediaType == .video {
+            VideoPreviewSurface(asset: asset)
+        } else if asset.mediaSubtypes.contains(.photoLive) {
             LivePhotoPreview(
-                asset: displayedAsset,
+                asset: asset,
                 targetSize: CGSize(width: 1080, height: 1080)
             )
         } else {
             PhotoThumbnailView(
-                asset: displayedAsset,
+                asset: asset,
                 targetSize: CGSize(width: 1080, height: 1080)
             )
         }
@@ -2542,12 +2580,12 @@ struct AssetPreviewView: View {
         .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
     }
 
-    private func mediaFittedSize(in container: CGSize) -> CGSize {
+    private func mediaFittedSize(for asset: PHAsset, in container: CGSize) -> CGSize {
         let maxW = max(container.width - Self.border * 2, 1)
         let maxH = max(container.height - Self.border * 2, 1)
         let aspect: CGFloat
-        if displayedAsset.pixelWidth > 0, displayedAsset.pixelHeight > 0 {
-            aspect = CGFloat(displayedAsset.pixelWidth) / CGFloat(displayedAsset.pixelHeight)
+        if asset.pixelWidth > 0, asset.pixelHeight > 0 {
+            aspect = CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
         } else {
             aspect = 1
         }
@@ -2568,65 +2606,6 @@ struct AssetPreviewView: View {
 
     private func dismiss() {
         onClose()
-    }
-
-    private var pageGesture: some Gesture {
-        DragGesture(minimumDistance: 18)
-            .onChanged { value in
-                guard !isZoomed, !showDetail else { return }
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                pagingOffset = value.translation.width * 0.28
-            }
-            .onEnded { value in
-                guard !isZoomed, !showDetail else {
-                    pagingOffset = 0
-                    return
-                }
-                let isHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.2
-                let passedThreshold = abs(value.translation.width) > 70
-                defer {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        pagingOffset = 0
-                    }
-                }
-                guard isHorizontal, passedThreshold else { return }
-                if value.translation.width < 0 {
-                    showNextAsset()
-                } else {
-                    showPreviousAsset()
-                }
-            }
-    }
-
-    private func showPreviousAsset() {
-        guard let previous = Self.adjacentAsset(before: displayedAsset, in: assets) else { return }
-        withAnimation(.easeOut(duration: 0.18)) {
-            displayedAsset = previous
-        }
-    }
-
-    private func showNextAsset() {
-        guard let next = Self.adjacentAsset(after: displayedAsset, in: assets) else { return }
-        withAnimation(.easeOut(duration: 0.18)) {
-            displayedAsset = next
-        }
-    }
-
-    private static func adjacentAsset(before asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
-        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
-              index > assets.startIndex else {
-            return nil
-        }
-        return assets[index - 1]
-    }
-
-    private static func adjacentAsset(after asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
-        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else {
-            return nil
-        }
-        let nextIndex = index + 1
-        guard nextIndex < assets.endIndex else { return nil }
-        return assets[nextIndex]
     }
 
     @MainActor
@@ -2665,6 +2644,59 @@ struct AssetPreviewView: View {
             return uniqueParts.isEmpty ? coordinateText : uniqueParts.joined(separator: ", ")
         } catch {
             return coordinateText
+        }
+    }
+}
+
+private struct TabViewPagingDisabler: UIViewRepresentable {
+    var isDisabled: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.apply(isDisabled: isDisabled, from: uiView)
+    }
+
+    final class Coordinator {
+        weak var pagingScrollView: UIScrollView?
+
+        func apply(isDisabled: Bool, from anchor: UIView) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.pagingScrollView == nil {
+                    self.pagingScrollView = Self.findPagingScrollView(from: anchor)
+                }
+                self.pagingScrollView?.isScrollEnabled = !isDisabled
+            }
+        }
+
+        private static func findPagingScrollView(from view: UIView) -> UIScrollView? {
+            var root = view
+            while let superview = root.superview {
+                root = superview
+            }
+            return searchPagingScrollView(in: root)
+        }
+
+        private static func searchPagingScrollView(in view: UIView) -> UIScrollView? {
+            if let scrollView = view as? UIScrollView, scrollView.isPagingEnabled {
+                return scrollView
+            }
+            for subview in view.subviews {
+                if let found = searchPagingScrollView(in: subview) {
+                    return found
+                }
+            }
+            return nil
         }
     }
 }
