@@ -511,11 +511,8 @@ struct MonthlyReviewView: View {
     @State private var removedIDs = Set<String>()
     @State private var history: [MonthReviewAction] = []
     @State private var offset: CGSize = .zero
-    @State private var photoOffset: CGSize = .zero
-    @State private var settledPhotoOffset: CGSize = .zero
-    @State private var scale: CGFloat = 1
-    @State private var settledScale: CGFloat = 1
-    @State private var isMagnifying = false
+    @State private var isZoomed = false
+    @State private var zoomReset = 0
     @State private var showDeleteConfirmation = false
     @State private var deletionError: String?
     @State private var previewAsset: IdentifiablePHAsset?
@@ -676,41 +673,28 @@ struct MonthlyReviewView: View {
 
     private func reviewCard(_ asset: PHAsset) -> some View {
         ZStack(alignment: .topLeading) {
-            PhotoThumbnailView(
-                asset: asset,
-                targetSize: CGSize(width: 880, height: 1100)
-            )
-            .id(asset.localIdentifier)
-            .scaleEffect(scale)
-            .offset(photoOffset)
-
-            if scale > 1.01 {
-                Button {
-                    resetPhotoTransform()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .padding(12)
-                .accessibilityLabel(Text("photo.reset.zoom"))
+            ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
+                PhotoThumbnailView(
+                    asset: asset,
+                    targetSize: CGSize(width: 880, height: 1100)
+                )
+                .id(asset.localIdentifier)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity)
         .frame(maxWidth: 440)
         .aspectRatio(0.84, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay {
-            if scale <= 1.01, offset.height > 30 {
+            if !isZoomed, offset.height > 30 {
                 swipeBadge(
                     title: String(localized: "mark.for.deletion"),
                     systemName: "trash",
                     color: .red,
                     alignment: .bottom
                 )
-            } else if scale <= 1.01, offset.height < -30 {
+            } else if !isZoomed, offset.height < -30 {
                 swipeBadge(
                     title: String(localized: "keep"),
                     systemName: "arrow.up",
@@ -722,59 +706,33 @@ struct MonthlyReviewView: View {
         .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
         .offset(offset)
         .rotationEffect(.degrees(Double(offset.width / 24)))
-        .simultaneousGesture(monthlyMagnifyGesture)
         .simultaneousGesture(monthlyDragGesture(for: asset))
-        .onTapGesture { previewAsset = IdentifiablePHAsset(asset: asset) }
-    }
-
-    private var monthlyMagnifyGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                isMagnifying = true
-                scale = min(max(settledScale * value.magnification, 0.75), 4)
-                offset = .zero
-                if scale <= 1 {
-                    photoOffset = .zero
-                }
-            }
-            .onEnded { _ in
-                isMagnifying = false
-                if scale <= 1 {
-                    resetPhotoTransform()
-                } else {
-                    settledScale = scale
-                }
-            }
+        .onTapGesture {
+            guard !isZoomed else { return }
+            previewAsset = IdentifiablePHAsset(asset: asset)
+        }
+        .onChange(of: asset.localIdentifier) { _, _ in
+            resetPhotoTransform()
+        }
     }
 
     private func monthlyDragGesture(for asset: PHAsset) -> some Gesture {
         DragGesture()
             .onChanged { value in
-                guard !isMagnifying else { return }
-                if scale > 1 {
-                    photoOffset = CGSize(
-                        width: settledPhotoOffset.width + value.translation.width,
-                        height: settledPhotoOffset.height + value.translation.height
-                    )
-                } else {
-                    offset = value.translation
-                }
+                guard !isZoomed else { return }
+                offset = value.translation
             }
             .onEnded { value in
-                guard !isMagnifying else {
+                guard !isZoomed else {
                     offset = .zero
                     return
                 }
-                if scale > 1 {
-                    settledPhotoOffset = photoOffset
-                } else {
-                    if value.translation.height > 110 {
-                        review(asset, markForDeletion: true)
-                    } else if value.translation.height < -110 {
-                        review(asset, markForDeletion: false)
-                    }
-                    offset = .zero
+                if value.translation.height > 110 {
+                    review(asset, markForDeletion: true)
+                } else if value.translation.height < -110 {
+                    review(asset, markForDeletion: false)
                 }
+                offset = .zero
             }
     }
 
@@ -878,12 +836,9 @@ struct MonthlyReviewView: View {
 
     private func resetPhotoTransform() {
         withAnimation(.easeOut(duration: 0.2)) {
-            scale = 1
-            settledScale = 1
-            isMagnifying = false
+            zoomReset += 1
+            isZoomed = false
             offset = .zero
-            photoOffset = .zero
-            settledPhotoOffset = .zero
         }
     }
 }
@@ -2142,75 +2097,19 @@ private struct InteractiveVideoPreview: View {
     @EnvironmentObject private var library: PhotoLibraryService
     let asset: PHAsset
 
-    @State private var scale: CGFloat = 1
-    @State private var settledScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var settledOffset: CGSize = .zero
+    @State private var isZoomed = false
+    @State private var zoomReset = 0
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black
 
-            VideoPreviewSurface(asset: asset)
-                .scaleEffect(scale)
-                .offset(offset)
-                .simultaneousGesture(magnifyGesture)
-                .simultaneousGesture(panGesture)
-
-            if scale > 1.01 {
-                Button {
-                    resetTransform()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .padding(12)
-                .accessibilityLabel(Text("video.reset.zoom"))
+            ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
+                VideoPreviewSurface(asset: asset)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .clipped()
-    }
-
-    private var magnifyGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                scale = min(max(settledScale * value.magnification, 1), 4)
-                if scale <= 1.01 {
-                    offset = .zero
-                }
-            }
-            .onEnded { _ in
-                settledScale = scale
-                if scale <= 1.01 {
-                    settledOffset = .zero
-                }
-            }
-    }
-
-    private var panGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                guard scale > 1.01 else { return }
-                offset = CGSize(
-                    width: settledOffset.width + value.translation.width,
-                    height: settledOffset.height + value.translation.height
-                )
-            }
-            .onEnded { _ in
-                settledOffset = offset
-            }
-    }
-
-    private func resetTransform() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            scale = 1
-            settledScale = 1
-            offset = .zero
-            settledOffset = .zero
-        }
     }
 }
 
@@ -2423,7 +2322,9 @@ extension View {
         isSelected: @escaping (String) -> Bool = { _ in false },
         onToggle: @escaping (IdentifiablePHAsset) -> Void = { _ in }
     ) -> some View {
-        self.overlay {
+        self
+            .toolbar(item.wrappedValue == nil ? .visible : .hidden, for: .navigationBar)
+            .overlay {
             if let asset = item.wrappedValue {
                 AssetPreviewView(
                     asset: asset.asset,
@@ -2443,7 +2344,7 @@ extension View {
                         }
                     }
                 )
-                .id(asset.id)
+                .ignoresSafeArea()
                 .transition(.asymmetric(
                     insertion: .scale(scale: 0.9).combined(with: .opacity),
                     removal: .opacity
@@ -2480,19 +2381,19 @@ struct AssetPreviewView: View {
     var onPrevious: (() -> Void)? = nil
     var onNext: (() -> Void)? = nil
 
-    @State private var scale: CGFloat = 1
-    @State private var settledScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var settledOffset: CGSize = .zero
+    @State private var isZoomed = false
+    @State private var zoomReset = 0
     @State private var pagingOffset: CGFloat = 0
-    @State private var showDetail: Bool = false
+    @State private var showDetail = true
+    @State private var isDetailBarPresented = false
     @State private var locationDescription: String = "-"
     @State private var storageDescription: String = "-"
 
     private static let border: CGFloat = 20
+    private static let detailPanelHeight: CGFloat = 120
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             Color.black.opacity(0.85)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
@@ -2500,53 +2401,66 @@ struct AssetPreviewView: View {
 
             GeometryReader { geo in
                 let fitted = mediaFittedSize(in: geo.size)
-                mediaContent
-                    .frame(width: fitted.width, height: fitted.height)
-                    .scaleEffect(scale)
-                    .offset(x: offset.width + pagingOffset, y: offset.height)
-                    .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                    .gesture(magnifyGesture)
-                    .simultaneousGesture(panGesture)
-                    .simultaneousGesture(pageGesture)
-                    .onTapGesture { dismiss() }
-                    .onTapGesture(count: 2) { handleDoubleTap() }
-            }
-            .ignoresSafeArea()
+                ZStack {
+                    ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
+                        mediaContent
+                            .frame(width: fitted.width, height: fitted.height)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
 
-            if scale > 1.01 {
-                VStack {
-                    HStack {
+                    VStack(spacing: 0) {
                         Spacer()
-                        Button { resetTransform() } label: {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(.ultraThinMaterial, in: Circle())
+                        ZStack(alignment: .bottomTrailing) {
+                            if showDetail, isDetailBarPresented {
+                                LinearGradient(
+                                    colors: [.clear, .black.opacity(0.65)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: Self.detailPanelHeight)
+                                .frame(maxWidth: .infinity)
+                                .allowsHitTesting(false)
+                            }
+
+                            VStack(alignment: .trailing, spacing: 8) {
+                                if showDetail, isDetailBarPresented {
+                                    detailTextOverlay
+                                        .transition(.opacity)
+                                }
+                                if isDetailBarPresented {
+                                    detailButton
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 12)
                         }
                     }
-                    .padding(16)
-                    Spacer()
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
-                .transition(.opacity)
+                .offset(x: isZoomed ? 0 : pagingOffset)
+                .simultaneousGesture(pageGesture)
+                .onTapGesture { dismiss() }
             }
-
-            VStack {
-                Spacer()
-                HStack {
-                    detailButton
-                    Spacer()
+            .ignoresSafeArea()
+            .onAppear {
+                isDetailBarPresented = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        isDetailBarPresented = true
+                    }
                 }
-                .padding(20)
             }
-
-            if showDetail {
-                detailCard
-                    .padding(.horizontal, Self.border)
-                    .padding(.bottom, Self.border)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            .onChange(of: asset.localIdentifier) { _, _ in
+                zoomReset += 1
+                isZoomed = false
+                pagingOffset = 0
+                showDetail = true
+                isDetailBarPresented = true
             }
+        }
+        .task(id: asset.localIdentifier) {
+            await loadDetailMetadata()
         }
     }
 
@@ -2569,80 +2483,33 @@ struct AssetPreviewView: View {
 
     private var detailButton: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.22)) {
-                showDetail = true
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showDetail.toggle()
             }
         } label: {
             Image(systemName: "ellipsis")
                 .font(.title3.bold())
                 .foregroundStyle(.white)
-                .frame(width: 50, height: 50)
-                .background(.ultraThinMaterial, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .accessibilityLabel(Text("show.detail"))
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(showDetail ? "hide.detail" : "show.detail"))
     }
 
-    private var detailCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Spacer()
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showDetail = false
-                    }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption.bold())
-                        .foregroundStyle(.primary)
-                        .frame(width: 32, height: 32)
-                        .background(.thinMaterial, in: Circle())
-                }
-                .accessibilityLabel(Text("hide.detail"))
-            }
-
-            VStack(alignment: .leading, spacing: 14) {
-                InfoPair(
-                    title: String(localized: "photo.time"),
-                    value: asset.creationDate?
-                        .formatted(date: .abbreviated, time: .shortened) ?? "-"
-                )
-                InfoPair(
-                    title: String(localized: "photo.pixel.dimensions"),
-                    value: "\(asset.pixelWidth) x \(asset.pixelHeight)"
-                )
-                InfoPair(
-                    title: String(localized: "photo.storage.size"),
-                    value: storageDescription
-                )
-                InfoPair(
-                    title: String(localized: "photo.location"),
-                    value: locationDescription
-                )
-                if let onToggle {
-                    Divider().padding(.vertical, 4)
-                    Button(
-                        isSelected
-                            ? String(localized: "unselect")
-                            : String(localized: "select")
-                    ) { onToggle() }
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 46)
-                        .background(
-                            Color.cleanerBlue,
-                            in: RoundedRectangle(cornerRadius: 12)
-                        )
-                }
-            }
+    private var detailTextOverlay: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            Text(
+                asset.creationDate?
+                    .formatted(date: .abbreviated, time: .shortened) ?? "-"
+            )
+            Text("\(asset.pixelWidth) × \(asset.pixelHeight) · \(storageDescription)")
+            Text(locationDescription)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .contentShape(RoundedRectangle(cornerRadius: 18))
-        .onTapGesture {}
-        .task(id: asset.localIdentifier) {
-            await loadDetailMetadata()
-        }
+        .font(.subheadline)
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.trailing)
+        .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
     }
 
     private func mediaFittedSize(in container: CGSize) -> CGSize {
@@ -2673,47 +2540,15 @@ struct AssetPreviewView: View {
         onClose()
     }
 
-    private var magnifyGesture: some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                scale = min(max(settledScale * value.magnification, 0.65), 4)
-                if scale < 1 {
-                    offset = .zero
-                }
-            }
-            .onEnded { _ in
-                if scale <= 1 {
-                    settledOffset = .zero
-                    resetTransform()
-                } else {
-                    settledScale = scale
-                }
-            }
-    }
-
-    private var panGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                guard scale > 1.01 else { return }
-                offset = CGSize(
-                    width: settledOffset.width + value.translation.width,
-                    height: settledOffset.height + value.translation.height
-                )
-            }
-            .onEnded { _ in
-                settledOffset = offset
-            }
-    }
-
     private var pageGesture: some Gesture {
         DragGesture(minimumDistance: 18)
             .onChanged { value in
-                guard scale <= 1.01, !showDetail else { return }
+                guard !isZoomed, !showDetail else { return }
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 pagingOffset = value.translation.width * 0.28
             }
             .onEnded { value in
-                guard scale <= 1.01, !showDetail else {
+                guard !isZoomed, !showDetail else {
                     pagingOffset = 0
                     return
                 }
@@ -2731,26 +2566,6 @@ struct AssetPreviewView: View {
                     onPrevious?()
                 }
             }
-    }
-
-    private func handleDoubleTap() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            if scale > 1.01 {
-                resetTransform()
-            } else {
-                scale = 2
-                settledScale = 2
-            }
-        }
-    }
-
-    private func resetTransform() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            scale = 1
-            settledScale = 1
-            offset = .zero
-            settledOffset = .zero
-        }
     }
 
     @MainActor

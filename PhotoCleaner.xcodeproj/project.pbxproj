@@ -13,6 +13,7 @@
 		AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* PhotoLibraryService.swift */; };
 		AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000019 /* SimilarAnalysisCache.swift */; };
 		AA0000000000000000000006 /* SmartSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001A /* SmartSearch.swift */; };
+		AA0000000000000000000007 /* ZoomableScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001B /* ZoomableScrollView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		AA0000000000000000000018 /* PhotoLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoLibraryService.swift; sourceTree = "<group>"; };
 		AA0000000000000000000019 /* SimilarAnalysisCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimilarAnalysisCache.swift; sourceTree = "<group>"; };
 		AA000000000000000000001A /* SmartSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartSearch.swift; sourceTree = "<group>"; };
+		AA000000000000000000001B /* ZoomableScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableScrollView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,6 +57,7 @@
 				AA0000000000000000000018 /* PhotoLibraryService.swift */,
 				AA0000000000000000000019 /* SimilarAnalysisCache.swift */,
 				AA000000000000000000001A /* SmartSearch.swift */,
+				AA000000000000000000001B /* ZoomableScrollView.swift */,
 				AA0000000000000000000013 /* Info.plist */,
 				AA0000000000000000000043 /* Resources */,
 			);
@@ -154,6 +157,7 @@
 				AA0000000000000000000004 /* PhotoLibraryService.swift in Sources */,
 				AA0000000000000000000005 /* SimilarAnalysisCache.swift in Sources */,
 				AA0000000000000000000006 /* SmartSearch.swift in Sources */,
+				AA0000000000000000000007 /* ZoomableScrollView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
