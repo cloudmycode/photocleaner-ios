@@ -686,6 +686,7 @@ struct MonthlyReviewView: View {
         .frame(maxWidth: 440)
         .aspectRatio(0.84, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 22))
+        .assetPreviewSource(id: asset.localIdentifier)
         .overlay {
             if !isZoomed, offset.height > 30 {
                 swipeBadge(
@@ -1393,6 +1394,7 @@ struct AssetSwipeCleanView: View {
             if asset.mediaType == .video {
                 InteractiveVideoPreview(asset: asset)
                     .id(asset.localIdentifier)
+                    .assetPreviewSource(id: asset.localIdentifier)
                     .frame(maxWidth: .infinity)
                     .frame(maxWidth: 440)
                     .aspectRatio(0.84, contentMode: .fit)
@@ -1404,6 +1406,7 @@ struct AssetSwipeCleanView: View {
                     asset: asset,
                     targetSize: CGSize(width: 880, height: 1100)
                 )
+                .assetPreviewSource(id: asset.localIdentifier)
                 .id(asset.localIdentifier)
                 .frame(maxWidth: .infinity)
                 .frame(maxWidth: 440)
@@ -2016,6 +2019,7 @@ private struct AssetGridItem: View {
                     asset: asset,
                     targetSize: CGSize(width: 320, height: 320)
                 )
+                .assetPreviewSource(id: asset.localIdentifier)
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
 
@@ -2322,64 +2326,94 @@ extension View {
         isSelected: @escaping (String) -> Bool = { _ in false },
         onToggle: @escaping (IdentifiablePHAsset) -> Void = { _ in }
     ) -> some View {
-        self
-            .toolbar(item.wrappedValue == nil ? .visible : .hidden, for: .navigationBar)
-            .overlay {
-            if let asset = item.wrappedValue {
+        AssetPreviewHost(
+            item: item,
+            assets: assets,
+            isSelected: isSelected,
+            onToggle: onToggle,
+            content: { self }
+        )
+    }
+
+    func assetPreviewSource(id: String) -> some View {
+        modifier(AssetPreviewSourceModifier(id: id))
+    }
+}
+
+private struct AssetPreviewNamespaceKey: EnvironmentKey {
+    static var defaultValue: Namespace.ID? { nil }
+}
+
+private extension EnvironmentValues {
+    var assetPreviewNamespace: Namespace.ID? {
+        get { self[AssetPreviewNamespaceKey.self] }
+        set { self[AssetPreviewNamespaceKey.self] = newValue }
+    }
+}
+
+private struct AssetPreviewSourceModifier: ViewModifier {
+    @Environment(\.assetPreviewNamespace) private var namespace
+    let id: String
+
+    func body(content: Content) -> some View {
+        if let namespace {
+            content.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            content
+        }
+    }
+}
+
+private struct AssetPreviewHost<Content: View>: View {
+    @Binding var item: IdentifiablePHAsset?
+    let assets: [PHAsset]
+    let isSelected: (String) -> Bool
+    let onToggle: (IdentifiablePHAsset) -> Void
+    @ViewBuilder let content: () -> Content
+    @Namespace private var previewNamespace
+
+    var body: some View {
+        content()
+            .environment(\.assetPreviewNamespace, previewNamespace)
+            .navigationDestination(item: $item) { wrapped in
                 AssetPreviewView(
-                    asset: asset.asset,
-                    onClose: { withAnimation { item.wrappedValue = nil } },
-                    isSelected: isSelected(asset.id),
-                    onToggle: { onToggle(asset) },
-                    onPrevious: {
-                        guard let previous = Self.adjacentAsset(before: asset.asset, in: assets) else { return }
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            item.wrappedValue = IdentifiablePHAsset(asset: previous)
-                        }
-                    },
-                    onNext: {
-                        guard let next = Self.adjacentAsset(after: asset.asset, in: assets) else { return }
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            item.wrappedValue = IdentifiablePHAsset(asset: next)
-                        }
-                    }
+                    asset: wrapped.asset,
+                    assets: assets,
+                    onClose: { item = nil },
+                    isSelected: isSelected(wrapped.id),
+                    onToggle: { onToggle(wrapped) }
                 )
-                .ignoresSafeArea()
-                .transition(.asymmetric(
-                    insertion: .scale(scale: 0.9).combined(with: .opacity),
-                    removal: .opacity
-                ))
+                .toolbar(.hidden, for: .navigationBar)
+                .toolbar(.hidden, for: .tabBar)
+                .toolbar(.hidden, for: .bottomBar)
+                .background(TabBarVisibilityAnimator(isHidden: true).frame(width: 0, height: 0))
+                .navigationTransition(.zoom(sourceID: wrapped.id, in: previewNamespace))
             }
-        }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: item.wrappedValue?.id)
-    }
-
-    private static func adjacentAsset(before asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
-        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
-              index > assets.startIndex else {
-            return nil
-        }
-        return assets[index - 1]
-    }
-
-    private static func adjacentAsset(after asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
-        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else {
-            return nil
-        }
-        let nextIndex = index + 1
-        guard nextIndex < assets.endIndex else { return nil }
-        return assets[nextIndex]
+            .background(TabBarVisibilityAnimator(isHidden: item != nil).frame(width: 0, height: 0))
     }
 }
 
 struct AssetPreviewView: View {
     @EnvironmentObject private var library: PhotoLibraryService
-    let asset: PHAsset
+    let assets: [PHAsset]
+    @State private var displayedAsset: PHAsset
     var onClose: () -> Void = {}
     var isSelected: Bool = false
     var onToggle: (() -> Void)? = nil
-    var onPrevious: (() -> Void)? = nil
-    var onNext: (() -> Void)? = nil
+
+    init(
+        asset: PHAsset,
+        assets: [PHAsset] = [],
+        onClose: @escaping () -> Void = {},
+        isSelected: Bool = false,
+        onToggle: (() -> Void)? = nil
+    ) {
+        self.assets = assets.isEmpty ? [asset] : assets
+        _displayedAsset = State(initialValue: asset)
+        self.onClose = onClose
+        self.isSelected = isSelected
+        self.onToggle = onToggle
+    }
 
     @State private var isZoomed = false
     @State private var zoomReset = 0
@@ -2444,14 +2478,9 @@ struct AssetPreviewView: View {
             }
             .ignoresSafeArea()
             .onAppear {
-                isDetailBarPresented = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        isDetailBarPresented = true
-                    }
-                }
+                isDetailBarPresented = true
             }
-            .onChange(of: asset.localIdentifier) { _, _ in
+            .onChange(of: displayedAsset.localIdentifier) { _, _ in
                 zoomReset += 1
                 isZoomed = false
                 pagingOffset = 0
@@ -2459,23 +2488,24 @@ struct AssetPreviewView: View {
                 isDetailBarPresented = true
             }
         }
-        .task(id: asset.localIdentifier) {
+        .background(Color.black)
+        .task(id: displayedAsset.localIdentifier) {
             await loadDetailMetadata()
         }
     }
 
     @ViewBuilder
     private var mediaContent: some View {
-        if asset.mediaType == .video {
-            VideoPreviewSurface(asset: asset)
-        } else if asset.mediaSubtypes.contains(.photoLive) {
+        if displayedAsset.mediaType == .video {
+            VideoPreviewSurface(asset: displayedAsset)
+        } else if displayedAsset.mediaSubtypes.contains(.photoLive) {
             LivePhotoPreview(
-                asset: asset,
+                asset: displayedAsset,
                 targetSize: CGSize(width: 1080, height: 1080)
             )
         } else {
             PhotoThumbnailView(
-                asset: asset,
+                asset: displayedAsset,
                 targetSize: CGSize(width: 1080, height: 1080)
             )
         }
@@ -2500,10 +2530,10 @@ struct AssetPreviewView: View {
     private var detailTextOverlay: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(
-                asset.creationDate?
+                displayedAsset.creationDate?
                     .formatted(date: .abbreviated, time: .shortened) ?? "-"
             )
-            Text("\(asset.pixelWidth) × \(asset.pixelHeight) · \(storageDescription)")
+            Text("\(displayedAsset.pixelWidth) × \(displayedAsset.pixelHeight) · \(storageDescription)")
             Text(locationDescription)
         }
         .font(.subheadline)
@@ -2516,8 +2546,8 @@ struct AssetPreviewView: View {
         let maxW = max(container.width - Self.border * 2, 1)
         let maxH = max(container.height - Self.border * 2, 1)
         let aspect: CGFloat
-        if asset.pixelWidth > 0, asset.pixelHeight > 0 {
-            aspect = CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
+        if displayedAsset.pixelWidth > 0, displayedAsset.pixelHeight > 0 {
+            aspect = CGFloat(displayedAsset.pixelWidth) / CGFloat(displayedAsset.pixelHeight)
         } else {
             aspect = 1
         }
@@ -2561,17 +2591,48 @@ struct AssetPreviewView: View {
                 }
                 guard isHorizontal, passedThreshold else { return }
                 if value.translation.width < 0 {
-                    onNext?()
+                    showNextAsset()
                 } else {
-                    onPrevious?()
+                    showPreviousAsset()
                 }
             }
     }
 
+    private func showPreviousAsset() {
+        guard let previous = Self.adjacentAsset(before: displayedAsset, in: assets) else { return }
+        withAnimation(.easeOut(duration: 0.18)) {
+            displayedAsset = previous
+        }
+    }
+
+    private func showNextAsset() {
+        guard let next = Self.adjacentAsset(after: displayedAsset, in: assets) else { return }
+        withAnimation(.easeOut(duration: 0.18)) {
+            displayedAsset = next
+        }
+    }
+
+    private static func adjacentAsset(before asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
+        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
+              index > assets.startIndex else {
+            return nil
+        }
+        return assets[index - 1]
+    }
+
+    private static func adjacentAsset(after asset: PHAsset, in assets: [PHAsset]) -> PHAsset? {
+        guard let index = assets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else {
+            return nil
+        }
+        let nextIndex = index + 1
+        guard nextIndex < assets.endIndex else { return nil }
+        return assets[nextIndex]
+    }
+
     @MainActor
     private func loadDetailMetadata() async {
-        storageDescription = formattedStorage(library.storageBytes(for: asset))
-        guard let location = asset.location else {
+        storageDescription = formattedStorage(library.storageBytes(for: displayedAsset))
+        guard let location = displayedAsset.location else {
             locationDescription = "-"
             return
         }
@@ -3285,10 +3346,16 @@ private final class TabBarVisibilityController: UIViewController {
     }
 
     private func applyTabBarHidden(_ hidden: Bool, animated: Bool) {
-        guard lastHiddenState != hidden else { return }
-        lastHiddenState = hidden
+        var effectiveHidden = hidden
+        if !hidden,
+           let navigationController,
+           navigationController.viewControllers.count > 1 {
+            effectiveHidden = true
+        }
+        guard lastHiddenState != effectiveHidden else { return }
+        lastHiddenState = effectiveHidden
 
-        TabBarAppearance.setHidden(hidden, for: self, animated: animated)
+        TabBarAppearance.setHidden(effectiveHidden, for: self, animated: animated)
     }
 }
 
@@ -3583,6 +3650,7 @@ private struct SimilarPhotoCard: View {
                     asset: photo.asset,
                     targetSize: CGSize(width: 132, height: 146)
                 )
+                .assetPreviewSource(id: photo.id)
                 .frame(width: cardWidth, height: 146)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }

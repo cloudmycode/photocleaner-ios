@@ -27,9 +27,17 @@ struct SimilarAssetGroup: Identifiable {
     let creationDate: Date?
 }
 
-struct IdentifiablePHAsset: Identifiable {
+struct IdentifiablePHAsset: Identifiable, Hashable {
     let asset: PHAsset
     var id: String { asset.localIdentifier }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+
+    static func == (lhs: IdentifiablePHAsset, rhs: IdentifiablePHAsset) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 struct PhotoMonthGroup: Identifiable {
