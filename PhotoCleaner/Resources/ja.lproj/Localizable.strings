@@ -27,6 +27,9 @@
 "category.large.videos" = "大きな動画";
 "category.screen.recordings" = "画面収録";
 "category.empty.albums" = "空のアルバム";
+"category.empty.albums.none" = "空のアルバムはありません";
+"category.empty.albums.none.description" = "すべてのアルバムに少なくとも1枚の写真があります。";
+"category.empty.albums.row.status" = "空";
 "total.photos" = "写真の合計";
 "total.photos.value" = "4,118 件";
 "total.photos.description" = "月ごとに写真を整理して削除できます";
@@ -99,6 +102,9 @@
 "settings.quality.value" = "スマートバランス (1080p)";
 "settings.keep.original" = "元動画を保持";
 "settings.general.security" = "一般とセキュリティ";
+"settings.language" = "言語";
+"settings.language.system" = "システムに従う";
+"settings.language.hint" = "言語を変更すると、すぐに画面表示が更新されます。";
 "settings.clear.cache" = "キャッシュを削除";
 "settings.smart.search.export" = "スマート検索インデックスを書き出す";
 "settings.smart.search.export.value" = "JSON";
@@ -143,6 +149,11 @@
 "month.delete.confirm.action" = "写真を削除";
 "month.review.complete" = "今月の確認完了";
 "month.review.complete.description" = "今月の写真をすべて確認しました。";
+"month.review.restart" = "もう一度確認";
+"month.review.guide.gotit" = "OK";
+"month.review.guide.swipe.up" = "上にスワイプして残す";
+"month.review.guide.swipe.down" = "下にスワイプして削除";
+"month.review.guide.accessibility" = "上にスワイプで残す、下にスワイプで削除";
 "cancel" = "キャンセル";
 "month.progress.format" = "%d/%d 確認済み";
 "month.progress.complete" = "完了";

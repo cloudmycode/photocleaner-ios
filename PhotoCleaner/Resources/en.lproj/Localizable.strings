@@ -27,6 +27,9 @@
 "category.large.videos" = "Large Videos";
 "category.screen.recordings" = "Screen Recordings";
 "category.empty.albums" = "Empty Albums";
+"category.empty.albums.none" = "No Empty Albums";
+"category.empty.albums.none.description" = "All albums contain at least one item.";
+"category.empty.albums.row.status" = "Empty";
 "total.photos" = "Total Photos";
 "total.photos.value" = "4,118 items";
 "total.photos.description" = "Organize and clear your photos month by month";
@@ -99,6 +102,9 @@
 "settings.quality.value" = "Smart balance (1080p)";
 "settings.keep.original" = "Keep original videos";
 "settings.general.security" = "General & Security";
+"settings.language" = "Language";
+"settings.language.system" = "System Default";
+"settings.language.hint" = "The interface updates immediately after you change the language.";
 "settings.clear.cache" = "Clear cache";
 "settings.smart.search.export" = "Export Smart Search Index";
 "settings.smart.search.export.value" = "JSON";
@@ -143,6 +149,11 @@
 "month.delete.confirm.action" = "Delete Photos";
 "month.review.complete" = "Month Reviewed";
 "month.review.complete.description" = "All photos in this month have been reviewed.";
+"month.review.restart" = "Review Again";
+"month.review.guide.gotit" = "Got it";
+"month.review.guide.swipe.up" = "Swipe up to keep";
+"month.review.guide.swipe.down" = "Swipe down to delete";
+"month.review.guide.accessibility" = "Swipe up to keep, swipe down to delete";
 "cancel" = "Cancel";
 "month.progress.format" = "%d of %d reviewed";
 "month.progress.complete" = "Complete";

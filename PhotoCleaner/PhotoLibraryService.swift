@@ -140,7 +140,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         var errorDescription: String? {
             switch self {
             case .photoAccessRequired:
-                return String(localized: "photo.access.description")
+                return AppLanguageSettings.shared.string("photo.access.description")
             }
         }
     }
@@ -1005,6 +1005,13 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         monthlyMarkedIDs[monthID] = markedIDs
         persistMonthlyReviewProgress()
         rebuildMonthlyProgress(for: monthID)
+    }
+
+    func resetMonthlyReview(for monthID: String) {
+        monthlyReviewedIDs.removeValue(forKey: monthID)
+        monthlyMarkedIDs.removeValue(forKey: monthID)
+        rebuildMonthlyProgress(for: monthID)
+        persistMonthlyReviewProgress()
     }
 
     private func rebuildMonthlyProgress(for monthID: String) {

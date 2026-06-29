@@ -27,6 +27,9 @@
 "category.large.videos" = "大型视频";
 "category.screen.recordings" = "屏幕录制";
 "category.empty.albums" = "空相册";
+"category.empty.albums.none" = "没有空相册";
+"category.empty.albums.none.description" = "所有相册都至少包含一张照片。";
+"category.empty.albums.row.status" = "空";
 "total.photos" = "照片总数";
 "total.photos.value" = "4,118 项";
 "total.photos.description" = "按月份整理并清理照片";
@@ -99,6 +102,9 @@
 "settings.quality.value" = "智能平衡 (1080P)";
 "settings.keep.original" = "压缩后保留原视频";
 "settings.general.security" = "通用与安全";
+"settings.language" = "语言";
+"settings.language.system" = "跟随系统";
+"settings.language.hint" = "更改语言后，界面将立即更新。";
 "settings.clear.cache" = "清理缓存空间";
 "settings.smart.search.export" = "导出智能找图索引";
 "settings.smart.search.export.value" = "JSON";
@@ -143,6 +149,11 @@
 "month.delete.confirm.action" = "删除照片";
 "month.review.complete" = "本月检查完成";
 "month.review.complete.description" = "这个月的照片已经全部检查完成。";
+"month.review.restart" = "重新检查";
+"month.review.guide.gotit" = "知道了";
+"month.review.guide.swipe.up" = "向上滑动保留";
+"month.review.guide.swipe.down" = "向下滑动删除";
+"month.review.guide.accessibility" = "上划保留，下划标记删除";
 "cancel" = "取消";
 "month.progress.format" = "已处理 %d/%d";
 "month.progress.complete" = "已完成";

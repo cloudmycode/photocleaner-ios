@@ -7,8 +7,13 @@ import SwiftUI
 import UIKit
 import Vision
 
+private func L(_ key: String) -> String {
+    AppLanguageSettings.shared.string(key)
+}
+
 struct ContentView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(AppLanguageSettings.self) private var languageSettings
     @State private var selectedTab: AppTab = .clean
 
     var body: some View {
@@ -36,28 +41,28 @@ struct ContentView: View {
                 QuickCleanView()
             }
             .tabBarSyncedWithNavigation()
-            .tabItem { Label(String(localized: "tab.quick"), systemImage: "sparkles.rectangle.stack") }
+            .tabItem { Label(languageSettings.string("tab.quick"), systemImage: "sparkles.rectangle.stack") }
             .tag(AppTab.clean)
 
             NavigationStack {
                 AlbumsView()
             }
             .tabBarSyncedWithNavigation()
-            .tabItem { Label(String(localized: "tab.albums"), systemImage: "photo.on.rectangle") }
+            .tabItem { Label(languageSettings.string("tab.albums"), systemImage: "photo.on.rectangle") }
             .tag(AppTab.albums)
 
             NavigationStack {
                 SmartPhotoSearchView()
             }
             .tabBarSyncedWithNavigation()
-            .tabItem { Label(String(localized: "tab.smart.search"), systemImage: "mic.badge.plus") }
+            .tabItem { Label(languageSettings.string("tab.smart.search"), systemImage: "mic.badge.plus") }
             .tag(AppTab.compress)
 
             NavigationStack {
                 SettingsView()
             }
             .tabBarSyncedWithNavigation()
-            .tabItem { Label(String(localized: "tab.settings"), systemImage: "gearshape") }
+            .tabItem { Label(languageSettings.string("tab.settings"), systemImage: "gearshape") }
             .tag(AppTab.settings)
         }
         .tint(.cleanerBlue)
@@ -88,23 +93,23 @@ private struct InitialAnalysisView: View {
 
     private var statusText: String {
         if case .loadingLibrary = library.scanState {
-            return String(localized: "initial.analysis.reading")
+            return L("initial.analysis.reading")
         }
         if let duplicateProgress = library.duplicateScanProgress {
             return String.localizedStringWithFormat(
-                String(localized: "duplicate.analyzing.format"),
+                L("duplicate.analyzing.format"),
                 duplicateProgress.current,
                 duplicateProgress.total
             )
         }
         if case let .analyzing(current, total) = library.scanState {
             return String.localizedStringWithFormat(
-                String(localized: "burst.analyzing.format"),
+                L("burst.analyzing.format"),
                 current,
                 total
             )
         }
-        return String(localized: "initial.analysis.preparing")
+        return L("initial.analysis.preparing")
     }
 
     var body: some View {
@@ -162,6 +167,7 @@ private func formattedStorage(_ bytes: Int64) -> String {
 
 struct QuickCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(AppLanguageSettings.self) private var languageSettings
     @State private var toastMessage: String?
     @State private var toastTask: Task<Void, Never>?
 
@@ -215,19 +221,19 @@ struct QuickCleanView: View {
 
     var body: some View {
         CleanerScroll {
-            CleanerHeader(title: String(localized: "app.name"))
+            CleanerHeader(title: L("app.name"))
             if hasPhotoAccess {
                 StorageCard(
-                    label: String(localized: "media.storage"),
+                    label: L("media.storage"),
                     value: formattedMediaStorage,
                     description: String.localizedStringWithFormat(
-                        String(localized: "library.summary.format"),
+                        L("library.summary.format"),
                         library.photoCount,
                         library.videoCount
                     )
                 )
 
-                CleanerSection(title: String(localized: "section.photos")) {
+                CleanerSection(title: L("section.photos")) {
                     ForEach(photoItems) { item in
                         let loadingText = loadingText(for: item)
                         if canOpen(item) {
@@ -248,7 +254,7 @@ struct QuickCleanView: View {
                     }
                 }
 
-                CleanerSection(title: String(localized: "section.videos")) {
+                CleanerSection(title: L("section.videos")) {
                     ForEach(videoItems) { item in
                         let loadingText = loadingText(for: item)
                         if canOpen(item) {
@@ -269,7 +275,7 @@ struct QuickCleanView: View {
                     }
                 }
 
-                CleanerSection(title: String(localized: "section.albums")) {
+                CleanerSection(title: L("section.albums")) {
                     ForEach(albumItems) { item in
                         NavigationLink {
                             EmptyAlbumCleanView()
@@ -306,6 +312,7 @@ struct QuickCleanView: View {
             }
         }
         .background(Color.cleanerBackground)
+        .id(languageSettings.effectiveLocaleIdentifier)
         .overlay(alignment: .bottom) {
             if let toastMessage {
                 CleanerToast(message: toastMessage)
@@ -336,13 +343,13 @@ struct QuickCleanView: View {
         guard !library.isUsingCachedHomeSummary else { return nil }
 
         if case .loadingLibrary = library.scanState {
-            return String(localized: "library.reading")
+            return L("library.reading")
         }
 
         if item.kind == .duplicate,
            let progress = library.duplicateScanProgress {
             return String.localizedStringWithFormat(
-                String(localized: "duplicate.analyzing.format"),
+                L("duplicate.analyzing.format"),
                 progress.current,
                 progress.total
             )
@@ -350,12 +357,12 @@ struct QuickCleanView: View {
 
         if item.kind == .burst {
             if library.duplicateScanProgress != nil {
-                return String(localized: "home.item.loading")
+                return L("home.item.loading")
             }
             if case let .analyzing(current, total) = library.scanState,
                current < total {
                 return String.localizedStringWithFormat(
-                    String(localized: "burst.analyzing.format"),
+                    L("burst.analyzing.format"),
                     current,
                     total
                 )
@@ -384,7 +391,7 @@ struct QuickCleanView: View {
     private func showLoadingToast() {
         toastTask?.cancel()
         withAnimation(.easeInOut(duration: 0.18)) {
-            toastMessage = String(localized: "home.item.loading.toast")
+            toastMessage = L("home.item.loading.toast")
         }
         toastTask = Task {
             try? await Task.sleep(nanoseconds: 1_600_000_000)
@@ -400,31 +407,31 @@ struct QuickCleanView: View {
     private var scanStatus: String {
         switch library.authorizationStatus {
         case .denied, .restricted:
-            return String(localized: "photo.access.required")
+            return L("photo.access.required")
         case .notDetermined:
-            return String(localized: "photo.access.requesting")
+            return L("photo.access.requesting")
         default:
             if library.isUsingCachedHomeSummary {
-                return String(localized: "analysis.complete")
+                return L("analysis.complete")
             }
             if case .loadingLibrary = library.scanState {
-                return String(localized: "library.reading")
+                return L("library.reading")
             }
             if let progress = library.duplicateScanProgress {
                 return String.localizedStringWithFormat(
-                    String(localized: "duplicate.analyzing.format"),
+                    L("duplicate.analyzing.format"),
                     progress.current,
                     progress.total
                 )
             }
             if case let .analyzing(current, total) = library.scanState {
                 return String.localizedStringWithFormat(
-                    String(localized: "burst.analyzing.format"),
+                    L("burst.analyzing.format"),
                     current,
                     total
                 )
             }
-            return String(localized: "analysis.complete")
+            return L("analysis.complete")
         }
     }
 
@@ -436,6 +443,7 @@ struct QuickCleanView: View {
 
 struct AlbumsView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(AppLanguageSettings.self) private var languageSettings
 
     private var yearGroups: [PhotoYearGroup] {
         let calendar = Calendar.current
@@ -454,11 +462,11 @@ struct AlbumsView: View {
 
     var body: some View {
         CleanerScroll {
-            CleanerHeader(title: String(localized: "tab.albums"))
+            CleanerHeader(title: L("tab.albums"))
             StorageCard(
-                label: String(localized: "total.photos"),
+                label: L("total.photos"),
                 value: "\(library.photoCount)",
-                description: String(localized: "total.photos.description")
+                description: L("total.photos.description")
             )
 
             if library.monthGroups.isEmpty {
@@ -472,7 +480,7 @@ struct AlbumsView: View {
                             NavigationLink {
                                 MonthlyReviewView(
                                     monthID: month.id,
-                                    title: month.date.formatted(.dateTime.year().month(.wide)),
+                                    monthDate: month.date,
                                     assets: month.assets
                                 )
                             } label: {
@@ -485,6 +493,7 @@ struct AlbumsView: View {
             }
         }
         .background(Color.cleanerBackground)
+        .id(languageSettings.effectiveLocaleIdentifier)
         .animatedTabBarVisible()
     }
 }
@@ -502,8 +511,9 @@ private struct MonthReviewAction {
 
 struct MonthlyReviewView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(AppLanguageSettings.self) private var languageSettings
     let monthID: String
-    let title: String
+    let monthDate: Date
     let assets: [PHAsset]
 
     @State private var reviewedIDs = Set<String>()
@@ -525,6 +535,7 @@ struct MonthlyReviewView: View {
     @State private var previewAsset: IdentifiablePHAsset?
     @State private var deckTransitionGeneration = 0
     @State private var showMarkedList = false
+    @State private var showGestureGuide = false
 
     private let monthlySwipeThreshold: CGFloat = 60
 
@@ -574,15 +585,15 @@ struct MonthlyReviewView: View {
                         reviewDeck(asset, containerSize: geo.size)
                     }
                     .padding(.horizontal, isZoomed ? 0 : 22)
-                    .padding(.bottom, isZoomed ? 0 : 16)
+
+                    if showGestureGuide, !isZoomed {
+                        gestureGuideHints
+                    }
                 }
                 .animation(.easeInOut(duration: 0.22), value: isZoomed)
+                .animation(.easeOut(duration: 0.2), value: showGestureGuide)
             } else {
-                ContentUnavailableView(
-                    "month.review.complete",
-                    systemImage: "checkmark.circle",
-                    description: Text("month.review.complete.description")
-                )
+                monthReviewCompleteView
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -592,27 +603,15 @@ struct MonthlyReviewView: View {
                     .padding(.vertical, 10)
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(languageSettings.formatMonthYear(monthDate))
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
         .background(Color.cleanerBackground)
-        .confirmationDialog(
-            "month.delete.confirm.title",
+        .monthlyDeleteConfirmation(
             isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("month.delete.confirm.action", role: .destructive) {
-                deleteMarkedPhotos()
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text(
-                String.localizedStringWithFormat(
-                    String(localized: "month.delete.confirm.message"),
-                    markedIDs.count
-                )
-            )
-        }
+            count: markedIDs.count,
+            onConfirm: deleteMarkedPhotos
+        )
         .alert("delete.failed", isPresented: Binding(
             get: { deletionError != nil },
             set: { if !$0 { deletionError = nil } }
@@ -624,6 +623,7 @@ struct MonthlyReviewView: View {
         .onAppear {
             library.restoreMonthlyReviewProgressIfNeeded()
             syncReviewState()
+            presentGestureGuideIfNeeded()
         }
         .onChange(of: library.reviewedIDs(for: monthID)) {
             syncReviewState()
@@ -655,6 +655,52 @@ struct MonthlyReviewView: View {
         guard !isExitingCard, !suppressStackedPreview, promotedAsset == nil else { return }
         reviewedIDs = library.reviewedIDs(for: monthID)
         markedIDs = library.markedIDs(for: monthID)
+    }
+
+    private var monthReviewCompleteView: some View {
+        VStack(spacing: 12) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(Color.cleanerGreen)
+                .symbolRenderingMode(.hierarchical)
+
+            Text("month.review.complete")
+                .font(.title2.bold())
+                .foregroundStyle(Color.cleanerGreen)
+
+            Text("month.review.complete.description")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            Button(action: restartMonthlyReview) {
+                Text("month.review.restart")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 14)
+                    .background(Color.cleanerGreen, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.top, 12)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func restartMonthlyReview() {
+        deckTransitionGeneration += 1
+        library.resetMonthlyReview(for: monthID)
+        reviewedIDs.removeAll()
+        markedIDs.removeAll()
+        history.removeAll()
+        promotedAsset = nil
+        showGestureGuide = false
+        resetPhotoTransform(animated: false)
+        presentGestureGuideIfNeeded()
     }
 
     private var reviewToolbar: some View {
@@ -696,6 +742,56 @@ struct MonthlyReviewView: View {
             reviewCard(asset, containerSize: containerSize)
         }
         .frame(width: containerSize.width, height: containerSize.height)
+    }
+
+    private func presentGestureGuideIfNeeded() {
+        guard deckAsset != nil else { return }
+        showGestureGuide = true
+    }
+
+    private func dismissGestureGuide() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            showGestureGuide = false
+        }
+    }
+
+    private var gestureGuideHints: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            gestureGuideRow(
+                systemName: "arrow.up",
+                color: .cleanerGreen,
+                text: L("month.review.guide.swipe.up")
+            )
+            gestureGuideRow(
+                systemName: "arrow.down",
+                color: .red,
+                text: L("month.review.guide.swipe.down")
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 28)
+        .padding(.top, 14)
+        .padding(.bottom, 18)
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("month.review.guide.accessibility"))
+    }
+
+    private func gestureGuideRow(
+        systemName: String,
+        color: Color,
+        text: String
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemName)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(color)
+                .frame(width: 20, alignment: .center)
+
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func monthlyPhotoSize(for asset: PHAsset, in container: CGSize) -> CGSize {
@@ -762,18 +858,27 @@ struct MonthlyReviewView: View {
             }
         }
         .overlay {
-            if !isZoomed, offset.height > 30 {
-                swipeBadge(
-                    title: String(localized: "delete"),
-                    systemName: "arrow.down",
-                    color: .red
-                )
-            } else if !isZoomed, offset.height < -30 {
-                swipeBadge(
-                    title: String(localized: "keep"),
-                    systemName: "arrow.up",
-                    color: .cleanerGreen
-                )
+            if !isZoomed {
+                ZStack {
+                    if offset.height > 30 {
+                        swipeBadge(
+                            title: L("delete"),
+                            systemName: "arrow.down",
+                            color: .red,
+                            alignment: .top
+                        )
+                    } else if offset.height < -30 {
+                        swipeBadge(
+                            title: L("keep"),
+                            systemName: "arrow.up",
+                            color: .cleanerGreen,
+                            alignment: .top
+                        )
+                    }
+                }
+                .frame(width: photoSize.width, height: photoSize.height)
+                .clipShape(cardShape)
+                .frame(width: containerSize.width, height: containerSize.height)
             }
         }
         .shadow(color: .black.opacity(showsCardShadow ? 0.18 : 0), radius: 18, y: 10)
@@ -801,6 +906,9 @@ struct MonthlyReviewView: View {
         DragGesture()
             .onChanged { value in
                 guard !isZoomed, !isExitingCard else { return }
+                if showGestureGuide, abs(value.translation.height) > 8 {
+                    dismissGestureGuide()
+                }
                 offset = CGSize(width: 0, height: value.translation.height)
             }
             .onEnded { value in
@@ -908,7 +1016,8 @@ struct MonthlyReviewView: View {
     private func swipeBadge(
         title: String,
         systemName: String,
-        color: Color
+        color: Color,
+        alignment: Alignment
     ) -> some View {
         Label(title, systemImage: systemName)
             .font(.caption.bold())
@@ -916,8 +1025,8 @@ struct MonthlyReviewView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(color, in: Capsule())
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .padding(12)
     }
 
     private var markedPhotosBar: some View {
@@ -929,7 +1038,7 @@ struct MonthlyReviewView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(
                             String.localizedStringWithFormat(
-                                String(localized: "month.marked.format"),
+                                L("month.marked.format"),
                                 markedIDs.count
                             )
                         )
@@ -1133,23 +1242,11 @@ private struct MonthlyMarkedPhotosView: View {
             isSelected: { markedIDs.contains($0) },
             onToggle: { unmark($0.asset) }
         )
-        .confirmationDialog(
-            "month.delete.confirm.title",
+        .monthlyDeleteConfirmation(
             isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("month.delete.confirm.action", role: .destructive) {
-                deleteMarkedPhotos()
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text(
-                String.localizedStringWithFormat(
-                    String(localized: "month.delete.confirm.message"),
-                    markedIDs.count
-                )
-            )
-        }
+            count: markedIDs.count,
+            onConfirm: deleteMarkedPhotos
+        )
         .alert("delete.failed", isPresented: Binding(
             get: { deletionError != nil },
             set: { if !$0 { deletionError = nil } }
@@ -1172,7 +1269,7 @@ private struct MonthlyMarkedPhotosView: View {
             HStack(spacing: 10) {
                 Text(
                     String.localizedStringWithFormat(
-                        String(localized: "month.marked.format"),
+                        L("month.marked.format"),
                         markedIDs.count
                     )
                 )
@@ -1224,6 +1321,7 @@ private struct MonthlyMarkedPhotosView: View {
 
 private struct MonthAssetRow: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(AppLanguageSettings.self) private var languageSettings
     let group: PhotoMonthGroup
 
     private var progress: Double {
@@ -1246,7 +1344,7 @@ private struct MonthAssetRow: View {
             }
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
-                    Text(group.date.formatted(.dateTime.month(.wide)))
+                    Text(languageSettings.formatMonth(group.date))
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     if progress >= 1 {
@@ -1256,7 +1354,7 @@ private struct MonthAssetRow: View {
                     } else {
                         Text(
                             String.localizedStringWithFormat(
-                                String(localized: "month.progress.format"),
+                                L("month.progress.format"),
                                 reviewedCount,
                                 group.assets.count
                             )
@@ -1269,7 +1367,7 @@ private struct MonthAssetRow: View {
                     .tint(progress >= 1 ? .cleanerGreen : .cleanerBlue)
                 Text(
                     String.localizedStringWithFormat(
-                        String(localized: "items.count.format"),
+                        L("items.count.format"),
                         group.assets.count
                     )
                 )
@@ -1395,21 +1493,11 @@ struct SimilarCleanView: View {
         } message: {
             Text(deletionError ?? "")
         }
-        .confirmationDialog(
-            "month.delete.confirm.title",
+        .monthlyDeleteConfirmation(
             isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("month.delete.confirm.action", role: .destructive) {
-                deleteSelected()
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text(String.localizedStringWithFormat(
-                String(localized: "month.delete.confirm.message"),
-                selectedCount
-            ))
-        }
+            count: selectedCount,
+            onConfirm: deleteSelected
+        )
         .onChange(of: groups.map(\.id)) {
             selectNonBestPhotos()
             preheatGroupThumbnails()
@@ -1428,7 +1516,7 @@ struct SimilarCleanView: View {
         } label: {
             HStack(spacing: 10) {
                 Text(String.localizedStringWithFormat(
-                    String(localized: "month.marked.format"),
+                    L("month.marked.format"),
                     selectedCount
                 ))
                     .font(.subheadline.bold())
@@ -1504,31 +1592,31 @@ struct SimilarCleanView: View {
         if mode == .duplicate,
            let progress = library.duplicateScanProgress {
             return String.localizedStringWithFormat(
-                String(localized: "duplicate.analyzing.format"),
+                L("duplicate.analyzing.format"),
                 progress.current,
                 progress.total
             )
         }
         if case let .analyzing(current, total) = library.scanState {
             return String.localizedStringWithFormat(
-                String(localized: "burst.analyzing.format"),
+                L("burst.analyzing.format"),
                 current,
                 total
             )
         }
-        return String(localized: "library.reading")
+        return L("library.reading")
     }
 
     private func groupTitle(_ group: SimilarAssetGroup, index: Int) -> String {
         guard let date = group.creationDate else {
             return String.localizedStringWithFormat(
-                String(localized: "group.number.format"),
+                L("group.number.format"),
                 index + 1
             )
         }
         if mode == .burst {
             return String.localizedStringWithFormat(
-                String(localized: "burst.group.title.format"),
+                L("burst.group.title.format"),
                 date.formatted(date: .abbreviated, time: .shortened),
                 group.assets.count
             )
@@ -1734,21 +1822,11 @@ struct AssetSwipeCleanView: View {
         } message: {
             Text(operationError ?? "")
         }
-        .confirmationDialog(
-            "month.delete.confirm.title",
+        .monthlyDeleteConfirmation(
             isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("month.delete.confirm.action", role: .destructive) {
-                deleteMarked()
-            }
-            Button("cancel", role: .cancel) {}
-        } message: {
-            Text(String.localizedStringWithFormat(
-                String(localized: "month.delete.confirm.message"),
-                markedIDs.count
-            ))
-        }
+            count: markedIDs.count,
+            onConfirm: deleteMarked
+        )
     }
 
     private var toolbar: some View {
@@ -1875,7 +1953,7 @@ struct AssetSwipeCleanView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String.localizedStringWithFormat(
-                    String(localized: "month.marked.format"),
+                    L("month.marked.format"),
                     markedIDs.count
                 ))
                 .font(.subheadline.weight(.bold))
@@ -2045,21 +2123,11 @@ struct AssetGridCleanView: View {
                 isSelected: { selectedIDs.contains($0) },
                 onToggle: { item in toggleSelection(item.asset) }
             )
-            .confirmationDialog(
-                "month.delete.confirm.title",
+            .monthlyDeleteConfirmation(
                 isPresented: $showDeleteConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("month.delete.confirm.action", role: .destructive) {
-                    deleteSelected()
-                }
-                Button("cancel", role: .cancel) {}
-            } message: {
-                Text(String.localizedStringWithFormat(
-                    String(localized: "month.delete.confirm.message"),
-                    selectedIDs.count
-                ))
-            }
+                count: selectedIDs.count,
+                onConfirm: deleteSelected
+            )
             .alert("operation.failed", isPresented: Binding(
                 get: { operationError != nil },
                 set: { if !$0 { operationError = nil } }
@@ -2131,7 +2199,7 @@ struct AssetGridCleanView: View {
         } label: {
             HStack(spacing: 10) {
                 Text(String.localizedStringWithFormat(
-                    String(localized: "month.marked.format"),
+                    L("month.marked.format"),
                     selectedIDs.count
                 ))
                     .font(.subheadline.bold())
@@ -2281,7 +2349,7 @@ struct LivePhotoCleanView: View {
             Button("cancel", role: .cancel) {}
         } message: {
             Text(String.localizedStringWithFormat(
-                String(localized: "live.convert.confirm.message"),
+                L("live.convert.confirm.message"),
                 selectedIDs.count
             ))
         }
@@ -2316,7 +2384,7 @@ struct LivePhotoCleanView: View {
         } label: {
             HStack(spacing: 10) {
                 Text(String.localizedStringWithFormat(
-                    String(localized: "live.convert.selected.format"),
+                    L("live.convert.selected.format"),
                     selectedIDs.count
                 ))
                     .font(.subheadline.bold())
@@ -3393,14 +3461,14 @@ struct VideoCompressView: View {
 
     var body: some View {
         CleanerScroll {
-            CleanerHeader(title: String(localized: "tab.compress"))
+            CleanerHeader(title: L("tab.compress"))
             StorageCard(
-                label: String(localized: "section.videos"),
+                label: L("section.videos"),
                 value: "\(library.videoCount)",
-                description: String(localized: "compress.summary.description")
+                description: L("compress.summary.description")
             )
 
-            CleanerSection(title: String(localized: "section.videos")) {
+            CleanerSection(title: L("section.videos")) {
                 ForEach(categories) { category in
                     NavigationLink {
                         AssetGridCleanView(category: category)
@@ -3437,7 +3505,7 @@ struct SmartPhotoSearchView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
-                CleanerHeader(title: String(localized: "tab.smart.search"))
+                CleanerHeader(title: L("tab.smart.search"))
                     .padding(.top, 18)
 
                 if let errorMessage {
@@ -3581,10 +3649,10 @@ struct SmartPhotoSearchView: View {
 
     private var resultsTitle: String {
         if results.isEmpty {
-            return String(localized: "smart.search.results")
+            return L("smart.search.results")
         }
         return String.localizedStringWithFormat(
-            String(localized: "smart.search.results.format"),
+            L("smart.search.results.format"),
             results.count
         )
     }
@@ -3634,7 +3702,7 @@ struct SmartPhotoSearchView: View {
             } catch {
                 isParsing = false
                 isSearching = false
-                errorMessage = String(localized: "smart.search.network.unavailable")
+                errorMessage = L("smart.search.network.unavailable")
             }
         }
     }
@@ -3729,9 +3797,9 @@ struct EmptyAlbumCleanView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ContentUnavailableView(
-                        "No Empty Albums",
+                        "category.empty.albums.none",
                         systemImage: "folder",
-                        description: Text("All albums contain at least one item.")
+                        description: Text("category.empty.albums.none.description")
                     )
                 }
             } else {
@@ -3741,7 +3809,7 @@ struct EmptyAlbumCleanView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(album.title)
                                     .font(.subheadline.weight(.semibold))
-                                Text("Empty")
+                                Text("category.empty.albums.row.status")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -3763,7 +3831,7 @@ struct EmptyAlbumCleanView: View {
                 .listStyle(.insetGrouped)
             }
         }
-        .navigationTitle(String(localized: "category.empty.albums"))
+        .navigationTitle(L("category.empty.albums"))
         .navigationBarTitleDisplayMode(.inline)
         .animatedTabBarHidden()
         .background(Color.cleanerBackground)
@@ -3800,8 +3868,30 @@ struct EmptyAlbumCleanView: View {
     }
 }
 
+private extension View {
+    func monthlyDeleteConfirmation(
+        isPresented: Binding<Bool>,
+        count: Int,
+        onConfirm: @escaping () -> Void
+    ) -> some View {
+        alert("month.delete.confirm.title", isPresented: isPresented) {
+            Button("cancel", role: .cancel) {}
+            Button("month.delete.confirm.action", role: .destructive, action: onConfirm)
+        } message: {
+            Text(
+                String.localizedStringWithFormat(
+                    L("month.delete.confirm.message"),
+                    count
+                )
+            )
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(AppLanguageSettings.self) private var languageSettings
+    @State private var showLanguagePicker = false
     @State private var showCacheConfirmation = false
     @State private var isExportingSearchIndex = false
     @State private var exportedSearchIndexURL: URL?
@@ -3810,14 +3900,25 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                CleanerHeader(title: String(localized: "tab.settings"))
+                CleanerHeader(title: L("tab.settings"))
 
-                SettingsGroup(title: String(localized: "settings.general.security")) {
+                SettingsGroup(title: L("settings.general.security")) {
+                    Button {
+                        showLanguagePicker = true
+                    } label: {
+                        SettingsActionRow(
+                            title: L("settings.language"),
+                            value: languageSettings.currentDisplayName,
+                            systemImage: "globe"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
                     Button {
                         library.openAppSettings()
                     } label: {
                         SettingsActionRow(
-                            title: String(localized: "settings.photo.access"),
+                            title: L("settings.photo.access"),
                             value: authorizationDescription,
                             systemImage: "photo"
                         )
@@ -3828,7 +3929,7 @@ struct SettingsView: View {
                         showCacheConfirmation = true
                     } label: {
                         SettingsActionRow(
-                            title: String(localized: "settings.clear.cache"),
+                            title: L("settings.clear.cache"),
                             value: formattedCacheSize,
                             systemImage: "trash"
                         )
@@ -3839,7 +3940,7 @@ struct SettingsView: View {
                         exportSmartSearchIndex()
                     } label: {
                         SettingsActionRow(
-                            title: String(localized: "settings.smart.search.export"),
+                            title: L("settings.smart.search.export"),
                             value: exportStatusText,
                             systemImage: "square.and.arrow.up"
                         )
@@ -3848,8 +3949,8 @@ struct SettingsView: View {
                     .disabled(isExportingSearchIndex)
                 }
 
-                SettingsGroup(title: String(localized: "settings.support")) {
-                    InfoPair(title: String(localized: "settings.version"), value: "1.0.0 (26)")
+                SettingsGroup(title: L("settings.support")) {
+                    InfoPair(title: L("settings.version"), value: "1.0.0 (26)")
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
                 }
@@ -3864,6 +3965,9 @@ struct SettingsView: View {
             .padding(.bottom, 28)
         }
         .background(Color.cleanerBackground)
+        .sheet(isPresented: $showLanguagePicker) {
+            LanguagePickerSheet()
+        }
         .confirmationDialog(
             "settings.clear.cache.confirm.title",
             isPresented: $showCacheConfirmation,
@@ -3910,18 +4014,18 @@ struct SettingsView: View {
     private var authorizationDescription: String {
         switch library.authorizationStatus {
         case .authorized:
-            return String(localized: "settings.photo.access.full")
+            return L("settings.photo.access.full")
         case .limited:
-            return String(localized: "settings.photo.access.limited")
+            return L("settings.photo.access.limited")
         default:
-            return String(localized: "settings.photo.access.none")
+            return L("settings.photo.access.none")
         }
     }
 
     private var exportStatusText: String {
         isExportingSearchIndex
-            ? String(localized: "settings.smart.search.export.in.progress")
-            : String(localized: "settings.smart.search.export.value")
+            ? L("settings.smart.search.export.in.progress")
+            : L("settings.smart.search.export.value")
     }
 
     private func exportSmartSearchIndex() {
@@ -4193,6 +4297,7 @@ private struct CleanerSection<Content: View>: View {
 }
 
 private struct CategoryRow: View {
+    @Environment(AppLanguageSettings.self) private var languageSettings
     let item: CleanerCategory
     let loadingText: String?
 
@@ -4202,7 +4307,7 @@ private struct CategoryRow: View {
                 .fill(item.color)
                 .frame(width: 4)
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
+                Text(languageSettings.string(item.titleKey))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.cleanerText)
                 if let loadingText {
@@ -4211,7 +4316,7 @@ private struct CategoryRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text(String.localizedStringWithFormat(String(localized: "items.count.format"), item.count))
+                    Text(String.localizedStringWithFormat(L("items.count.format"), item.count))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -4321,20 +4426,20 @@ private struct SimilarGroup: View {
 
         if photo.isBest {
             if photo.asset.isFavorite {
-                return BurstPhotoInsight(text: String(localized: "ai.tag.favorite.keep"), tint: .yellow)
+                return BurstPhotoInsight(text: L("ai.tag.favorite.keep"), tint: .yellow)
             }
-            return BurstPhotoInsight(text: String(localized: "ai.tag.best.keep"), tint: .cleanerGreen)
+            return BurstPhotoInsight(text: L("ai.tag.best.keep"), tint: .cleanerGreen)
         }
         if scoreGap > 0.18 {
-            return BurstPhotoInsight(text: String(localized: "ai.tag.lower.quality"), tint: .orange)
+            return BurstPhotoInsight(text: L("ai.tag.lower.quality"), tint: .orange)
         }
         if photo.qualityScore < 0.34 {
-            return BurstPhotoInsight(text: String(localized: "ai.tag.possible.blur"), tint: .orange)
+            return BurstPhotoInsight(text: L("ai.tag.possible.blur"), tint: .orange)
         }
         if megapixels >= 12 {
-            return BurstPhotoInsight(text: String(localized: "ai.tag.high.resolution"), tint: .cleanerBlue)
+            return BurstPhotoInsight(text: L("ai.tag.high.resolution"), tint: .cleanerBlue)
         }
-        return BurstPhotoInsight(text: String(localized: "ai.tag.similar.cleanable"), tint: .secondary)
+        return BurstPhotoInsight(text: L("ai.tag.similar.cleanable"), tint: .secondary)
     }
 }
 
@@ -4508,6 +4613,74 @@ private struct SettingsGroup<Content: View>: View {
     }
 }
 
+private struct LanguagePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppLanguageSettings.self) private var languageSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("settings.language")
+                .font(.headline)
+                .padding(.horizontal, 16)
+
+            VStack(spacing: 0) {
+                ForEach(AppLanguageSettings.Option.allCases) { option in
+                    Button {
+                        languageSettings.selection = option
+                        dismiss()
+                    } label: {
+                        LanguageOptionRow(
+                            title: option == .system
+                                ? L("settings.language.system")
+                                : option.nativeDisplayName,
+                            isSelected: languageSettings.selection == option
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cleanerBorder))
+            .padding(.horizontal, 16)
+
+            Text("settings.language.hint")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color.cleanerBackground)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+private struct LanguageOptionRow: View {
+    let title: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .foregroundStyle(.primary)
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.cleanerBlue)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(minHeight: 52)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
 private struct SettingsActionRow: View {
     let title: String
     let value: String?
@@ -4586,16 +4759,18 @@ struct CleanerCategory: Identifiable {
     }
 
     var id: Kind { kind }
-    let title: String
+    let titleKey: String
     let count: Int
     let size: String
     let color: Color
     let icon: String
     let kind: Kind
 
+    var title: String { L(titleKey) }
+
     func with(count: Int) -> CleanerCategory {
         CleanerCategory(
-            title: title,
+            titleKey: titleKey,
             count: count,
             size: size,
             color: color,
@@ -4606,7 +4781,7 @@ struct CleanerCategory: Identifiable {
 
     static func duplicates(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.duplicates"),
+            titleKey: "category.duplicates",
             count: count,
             size: size,
             color: .orange,
@@ -4617,7 +4792,7 @@ struct CleanerCategory: Identifiable {
 
     static func bursts(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.bursts"),
+            titleKey: "category.bursts",
             count: count,
             size: size,
             color: .cleanerGreen,
@@ -4628,7 +4803,7 @@ struct CleanerCategory: Identifiable {
 
     static func screenshots(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.screenshots"),
+            titleKey: "category.screenshots",
             count: count,
             size: size,
             color: .red,
@@ -4639,7 +4814,7 @@ struct CleanerCategory: Identifiable {
 
     static func livePhotos(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.live.photos"),
+            titleKey: "category.live.photos",
             count: count,
             size: size,
             color: .cleanerBlue,
@@ -4650,7 +4825,7 @@ struct CleanerCategory: Identifiable {
 
     static func allVideos(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.all.videos"),
+            titleKey: "category.all.videos",
             count: count,
             size: size,
             color: .cyan,
@@ -4661,7 +4836,7 @@ struct CleanerCategory: Identifiable {
 
     static func largeVideos(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.large.videos"),
+            titleKey: "category.large.videos",
             count: count,
             size: size,
             color: .orange,
@@ -4672,7 +4847,7 @@ struct CleanerCategory: Identifiable {
 
     static func screenRecordings(count: Int, size: String = "") -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.screen.recordings"),
+            titleKey: "category.screen.recordings",
             count: count,
             size: size,
             color: .gray,
@@ -4683,7 +4858,7 @@ struct CleanerCategory: Identifiable {
 
     static func emptyAlbums(count: Int) -> CleanerCategory {
         CleanerCategory(
-            title: String(localized: "category.empty.albums"),
+            titleKey: "category.empty.albums",
             count: count,
             size: "",
             color: Color(red: 0.733, green: 0.420, blue: 0.851),
