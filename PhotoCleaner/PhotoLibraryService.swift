@@ -594,7 +594,7 @@ final class PhotoLibraryService: NSObject, ObservableObject {
         completion: @escaping (AVPlayerItem?) -> Void
     ) -> PHImageRequestID {
         let options = PHVideoRequestOptions()
-        options.deliveryMode = .automatic
+        options.deliveryMode = .fastFormat
         options.version = .current
         options.isNetworkAccessAllowed = true
 
@@ -602,7 +602,9 @@ final class PhotoLibraryService: NSObject, ObservableObject {
             forVideo: asset,
             options: options
         ) { playerItem, _ in
-            completion(playerItem)
+            Task { @MainActor in
+                completion(playerItem)
+            }
         }
     }
 
@@ -2866,16 +2868,26 @@ struct PhotoThumbnailView: View {
             }
         }
         .clipped()
-        .onAppear {
-            guard image == nil else { return }
-            requestID = library.requestThumbnail(for: asset, targetSize: targetSize) {
-                image = $0
-            }
+        .onAppear { loadThumbnail() }
+        .onChange(of: asset.localIdentifier) { _, _ in
+            loadThumbnail()
         }
         .onDisappear {
             if let requestID {
                 library.cancelImageRequest(requestID)
+                self.requestID = nil
             }
+        }
+    }
+
+    private func loadThumbnail() {
+        if let requestID {
+            library.cancelImageRequest(requestID)
+            self.requestID = nil
+        }
+        image = nil
+        requestID = library.requestThumbnail(for: asset, targetSize: targetSize) {
+            image = $0
         }
     }
 }

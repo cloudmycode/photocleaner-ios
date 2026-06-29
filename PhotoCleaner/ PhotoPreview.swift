@@ -513,6 +513,13 @@ struct MonthlyReviewView: View {
     @State private var offset: CGSize = .zero
     @State private var isZoomed = false
     @State private var zoomReset = 0
+    @State private var isExitingCard = false
+    @State private var lockedStackAsset: PHAsset?
+    @State private var suppressStackedPreview = false
+    @State private var frontCardScale: CGFloat = 1
+    @State private var frontCardOffsetY: CGFloat = 0
+    @State private var frontCardOpacity: Double = 1
+    @State private var promotedAsset: PHAsset?
     @State private var showDeleteConfirmation = false
     @State private var deletionError: String?
     @State private var previewAsset: IdentifiablePHAsset?
@@ -541,26 +548,34 @@ struct MonthlyReviewView: View {
         reviewedIDs.intersection(Set(availableAssets.map(\.localIdentifier))).count
     }
 
+    private var deckAsset: PHAsset? {
+        promotedAsset ?? currentAsset
+    }
+
     var body: some View {
         Group {
-            if let asset = currentAsset {
-                ScrollView {
-                    VStack(spacing: 18) {
-                        reviewToolbar
-                        reviewDeck(asset)
-                        HStack(spacing: 36) {
-                            ActionCircle(systemName: "arrow.up", tint: .cleanerGreen) {
-                                review(asset, markForDeletion: false)
-                            }
-                            .accessibilityLabel(Text("keep"))
+            if let asset = deckAsset {
+                VStack(spacing: 0) {
+                    reviewToolbar
+                        .padding(.top, 16)
 
-                            ActionCircle(systemName: "trash", tint: .red) {
-                                review(asset, markForDeletion: true)
-                            }
-                            .accessibilityLabel(Text("mark.for.deletion"))
-                        }
-                        Color.clear.frame(height: 12)
+                    GeometryReader { geo in
+                        reviewDeck(asset, containerSize: geo.size)
                     }
+                    .padding(.horizontal, 22)
+
+                    HStack(spacing: 36) {
+                        ActionCircle(systemName: "arrow.up", tint: .cleanerGreen) {
+                            flyOutAndReview(asset, markForDeletion: false)
+                        }
+                        .accessibilityLabel(Text("keep"))
+
+                        ActionCircle(systemName: "trash", tint: .red) {
+                            flyOutAndReview(asset, markForDeletion: true)
+                        }
+                        .accessibilityLabel(Text("mark.for.deletion"))
+                    }
+                    .padding(.vertical, 16)
                 }
             } else {
                 ContentUnavailableView(
@@ -620,6 +635,7 @@ struct MonthlyReviewView: View {
     }
 
     private func syncReviewState() {
+        guard !isExitingCard, !suppressStackedPreview, promotedAsset == nil else { return }
         reviewedIDs = library.reviewedIDs(for: monthID)
         markedIDs = library.markedIDs(for: monthID)
     }
@@ -640,38 +656,63 @@ struct MonthlyReviewView: View {
         .padding(.top, 16)
     }
 
-    private func reviewDeck(_ asset: PHAsset) -> some View {
+    private func stackedAsset(behind asset: PHAsset) -> PHAsset? {
+        if isExitingCard {
+            return lockedStackAsset
+        }
+        guard !suppressStackedPreview else { return nil }
+        return nextAsset
+    }
+
+    private func reviewDeck(_ asset: PHAsset, containerSize: CGSize) -> some View {
         ZStack {
-            if let nextAsset {
-                stackedPreviewCard(nextAsset)
+            if let backAsset = stackedAsset(behind: asset),
+               backAsset.localIdentifier != asset.localIdentifier {
+                stackedPreviewCard(backAsset, containerSize: containerSize)
                     .scaleEffect(0.96)
                     .offset(y: 18)
                     .opacity(0.88)
                     .allowsHitTesting(false)
             }
 
-            reviewCard(asset)
+            reviewCard(asset, containerSize: containerSize)
         }
-        .padding(.horizontal, 22)
+        .frame(width: containerSize.width, height: containerSize.height)
     }
 
-    private func stackedPreviewCard(_ asset: PHAsset) -> some View {
+    private func monthlyPhotoSize(for asset: PHAsset, in container: CGSize) -> CGSize {
+        let width = max(container.width, 1)
+        let aspect: CGFloat
+        if asset.pixelWidth > 0, asset.pixelHeight > 0 {
+            aspect = CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
+        } else {
+            aspect = 1
+        }
+        let height = min(width / aspect, max(container.height, 1))
+        return CGSize(width: width, height: height)
+    }
+
+    @ViewBuilder
+    private func stackedPreviewCard(_ asset: PHAsset, containerSize: CGSize) -> some View {
+        let photoSize = monthlyPhotoSize(for: asset, in: containerSize)
         PhotoThumbnailView(
             asset: asset,
             targetSize: CGSize(width: 880, height: 1100)
         )
-        .frame(maxWidth: .infinity)
-        .frame(maxWidth: 440)
-        .aspectRatio(0.84, contentMode: .fit)
+        .id(asset.localIdentifier)
+        .frame(width: photoSize.width, height: photoSize.height)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay {
             RoundedRectangle(cornerRadius: 22)
                 .stroke(Color.cleanerBorder.opacity(0.55), lineWidth: 0.5)
         }
         .shadow(color: .black.opacity(0.12), radius: 14, y: 8)
+        .frame(width: containerSize.width, height: containerSize.height)
     }
 
-    private func reviewCard(_ asset: PHAsset) -> some View {
+    @ViewBuilder
+    private func reviewCard(_ asset: PHAsset, containerSize: CGSize) -> some View {
+        let photoSize = monthlyPhotoSize(for: asset, in: containerSize)
         ZStack(alignment: .topLeading) {
             ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
                 PhotoThumbnailView(
@@ -680,11 +721,9 @@ struct MonthlyReviewView: View {
                 )
                 .id(asset.localIdentifier)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: photoSize.width, height: photoSize.height)
         }
-        .frame(maxWidth: .infinity)
-        .frame(maxWidth: 440)
-        .aspectRatio(0.84, contentMode: .fit)
+        .frame(width: photoSize.width, height: photoSize.height)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .assetPreviewSource(id: asset.localIdentifier)
         .overlay {
@@ -705,36 +744,93 @@ struct MonthlyReviewView: View {
             }
         }
         .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
-        .offset(offset)
-        .rotationEffect(.degrees(Double(offset.width / 24)))
-        .simultaneousGesture(monthlyDragGesture(for: asset))
+        .scaleEffect(frontCardScale)
+        .opacity(frontCardOpacity)
+        .offset(x: offset.width, y: offset.height + frontCardOffsetY)
+        .frame(width: containerSize.width, height: containerSize.height)
+        .simultaneousGesture(monthlyDragGesture(for: asset, containerHeight: containerSize.height))
         .onTapGesture {
-            guard !isZoomed else { return }
+            guard !isZoomed, !isExitingCard else { return }
             previewAsset = IdentifiablePHAsset(asset: asset)
         }
         .onChange(of: asset.localIdentifier) { _, _ in
-            resetPhotoTransform()
+            Task { @MainActor in
+                resetPhotoTransform(animated: false)
+            }
         }
     }
 
-    private func monthlyDragGesture(for asset: PHAsset) -> some Gesture {
+    private func monthlyDragGesture(for asset: PHAsset, containerHeight: CGFloat) -> some Gesture {
         DragGesture()
             .onChanged { value in
-                guard !isZoomed else { return }
-                offset = value.translation
+                guard !isZoomed, !isExitingCard else { return }
+                offset = CGSize(width: 0, height: value.translation.height)
             }
             .onEnded { value in
-                guard !isZoomed else {
-                    offset = .zero
+                guard !isZoomed, !isExitingCard else {
                     return
                 }
                 if value.translation.height > 110 {
-                    review(asset, markForDeletion: true)
+                    flyOutAndReview(asset, markForDeletion: true, containerHeight: containerHeight)
                 } else if value.translation.height < -110 {
-                    review(asset, markForDeletion: false)
+                    flyOutAndReview(asset, markForDeletion: false, containerHeight: containerHeight)
+                } else {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                        offset = .zero
+                    }
+                }
+            }
+    }
+
+    private func flyOutAndReview(
+        _ asset: PHAsset,
+        markForDeletion: Bool,
+        containerHeight: CGFloat? = nil
+    ) {
+        guard !isExitingCard, promotedAsset == nil else { return }
+        let promoted = nextAsset
+        let shouldPromote = promoted != nil
+        lockedStackAsset = promoted
+        isExitingCard = true
+        let distance = (containerHeight ?? 640) * 1.35
+        let targetY: CGFloat = markForDeletion ? distance : -distance
+        withAnimation(.easeIn(duration: 0.28)) {
+            offset = CGSize(width: 0, height: targetY)
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(280))
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                review(asset, markForDeletion: markForDeletion)
+                if shouldPromote {
+                    promotedAsset = promoted
                 }
                 offset = .zero
+                isExitingCard = false
+                lockedStackAsset = nil
+                suppressStackedPreview = shouldPromote
+                if shouldPromote {
+                    frontCardScale = 0.96
+                    frontCardOffsetY = 18
+                    frontCardOpacity = 0.88
+                } else {
+                    frontCardScale = 1
+                    frontCardOffsetY = 0
+                    frontCardOpacity = 1
+                }
             }
+            if shouldPromote {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                    frontCardScale = 1
+                    frontCardOffsetY = 0
+                    frontCardOpacity = 1
+                }
+                try? await Task.sleep(for: .milliseconds(420))
+                suppressStackedPreview = false
+                promotedAsset = nil
+            }
+        }
     }
 
     private func swipeBadge(
@@ -800,17 +896,19 @@ struct MonthlyReviewView: View {
         if markForDeletion {
             markedIDs.insert(id)
         }
-        resetPhotoTransform()
+        zoomReset += 1
+        isZoomed = false
     }
 
     private func undo() {
         guard let action = history.popLast() else { return }
+        promotedAsset = nil
         reviewedIDs.remove(action.id)
         library.setMonthlyAsset(action.id, reviewed: false, monthID: monthID)
         if action.markedForDeletion {
             markedIDs.remove(action.id)
         }
-        resetPhotoTransform()
+        resetPhotoTransform(animated: true)
     }
 
     private func deleteMarkedPhotos() {
@@ -835,11 +933,21 @@ struct MonthlyReviewView: View {
         }
     }
 
-    private func resetPhotoTransform() {
-        withAnimation(.easeOut(duration: 0.2)) {
+    private func resetPhotoTransform(animated: Bool) {
+        let reset = {
             zoomReset += 1
             isZoomed = false
             offset = .zero
+            frontCardScale = 1
+            frontCardOffsetY = 0
+            frontCardOpacity = 1
+        }
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                reset()
+            }
+        } else {
+            reset()
         }
     }
 }
@@ -2103,13 +2211,14 @@ private struct InteractiveVideoPreview: View {
 
     @State private var isZoomed = false
     @State private var zoomReset = 0
+    @StateObject private var playback = VideoPlaybackController()
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black
 
             ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
-                VideoPreviewSurface(asset: asset)
+                VideoPreviewSurface(asset: asset, controller: playback)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -2117,114 +2226,87 @@ private struct InteractiveVideoPreview: View {
     }
 }
 
-struct VideoPreviewSurface: View {
-    @EnvironmentObject private var library: PhotoLibraryService
-    let asset: PHAsset
+@MainActor
+final class VideoPlaybackController: ObservableObject {
+    @Published var player: AVPlayer?
+    @Published var currentTime: Double = 0
+    @Published var duration: Double = 0
+    @Published var isPlaying = false
+    @Published var isScrubbing = false
+    @Published private(set) var isFrameReady = false
 
-    @State private var player: AVPlayer?
-    @State private var requestID: PHImageRequestID?
-    @State private var timeObserver: Any?
-    @State private var currentTime: Double = 0
-    @State private var duration: Double = 0
-    @State private var isPlaying = false
-    @State private var isScrubbing = false
+    private var requestID: PHImageRequestID?
+    private var timeObserver: Any?
+    private weak var timeObserverPlayer: AVPlayer?
+    private var itemStatusObservation: NSKeyValueObservation?
+    private var pendingAutoplay = false
+    private(set) var loadedAssetID: String?
 
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black
+    func isReady(for assetID: String) -> Bool {
+        loadedAssetID == assetID && player != nil
+    }
+
+    func requestPlay(asset: PHAsset, library: PhotoLibraryService) {
+        let assetID = asset.localIdentifier
+        if loadedAssetID == assetID {
             if let player {
-                VideoPlayer(player: player)
-                    .overlay {
-                        Button {
-                            togglePlayback()
-                        } label: {
-                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 30, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 72, height: 72)
-                                .background(.black.opacity(0.42), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                videoControls(player: player)
-            } else {
-                ProgressView().tint(.white)
-            }
-        }
-        .onAppear {
-            requestID = library.requestPlayerItem(for: asset) { item in
-                guard let item else { return }
-                let newPlayer = AVPlayer(playerItem: item)
-                player = newPlayer
-                duration = asset.duration
-                addTimeObserver(to: newPlayer)
-                newPlayer.play()
-                isPlaying = true
-            }
-        }
-        .onDisappear {
-            player?.pause()
-            if let player, let timeObserver {
-                player.removeTimeObserver(timeObserver)
-            }
-            timeObserver = nil
-            if let requestID {
-                library.cancelImageRequest(requestID)
-            }
-        }
-    }
-
-    private func videoControls(player: AVPlayer) -> some View {
-        VStack(spacing: 8) {
-            Slider(
-                value: Binding(
-                    get: { currentTime },
-                    set: { newValue in
-                        currentTime = newValue
-                        isScrubbing = true
-                    }
-                ),
-                in: 0...max(duration, 0.1),
-                onEditingChanged: { editing in
-                    isScrubbing = editing
-                    guard !editing else { return }
-                    player.seek(to: CMTime(seconds: currentTime, preferredTimescale: 600))
+                if !isPlaying {
+                    togglePlayback()
                 }
-            )
-            HStack {
-                Text(formatTime(currentTime))
-                Spacer()
-                Text(formatTime(duration))
+                return
             }
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(.white.opacity(0.82))
+            pendingAutoplay = true
+            return
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
-        .padding(12)
+        pendingAutoplay = true
+        load(asset: asset, library: library)
     }
 
-    private func addTimeObserver(to player: AVPlayer) {
-        if let timeObserver {
-            player.removeTimeObserver(timeObserver)
-        }
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
-            queue: .main
-        ) { time in
-            guard !isScrubbing else { return }
-            currentTime = time.seconds.isFinite ? time.seconds : 0
-            isPlaying = player.timeControlStatus == .playing
-            if let itemDuration = player.currentItem?.duration.seconds,
-               itemDuration.isFinite,
-               itemDuration > 0 {
+    func load(asset: PHAsset, library: PhotoLibraryService) {
+        guard loadedAssetID != asset.localIdentifier else { return }
+        teardown(library: library, keepPendingAutoplay: true)
+        let assetID = asset.localIdentifier
+        loadedAssetID = assetID
+        duration = 0
+        currentTime = 0
+        isFrameReady = false
+        requestID = library.requestPlayerItem(for: asset) { [weak self] item in
+            guard let self, let item, loadedAssetID == assetID else { return }
+            let newPlayer = AVPlayer(playerItem: item)
+            player = newPlayer
+            let itemDuration = item.duration.seconds
+            if itemDuration.isFinite, itemDuration > 0 {
                 duration = itemDuration
             }
+            observeFrameReady(for: item)
+            addTimeObserver(to: newPlayer)
+            if !pendingAutoplay {
+                isPlaying = false
+            }
         }
     }
 
-    private func togglePlayback() {
+    func teardown(library: PhotoLibraryService, keepPendingAutoplay: Bool = false) {
+        if !keepPendingAutoplay {
+            pendingAutoplay = false
+        }
+        player?.pause()
+        removeTimeObserver()
+        itemStatusObservation = nil
+        isFrameReady = false
+        player = nil
+        if let requestID {
+            library.cancelImageRequest(requestID)
+        }
+        self.requestID = nil
+        loadedAssetID = nil
+        currentTime = 0
+        duration = 0
+        isPlaying = false
+        isScrubbing = false
+    }
+
+    func togglePlayback() {
         guard let player else { return }
         if isPlaying {
             player.pause()
@@ -2238,10 +2320,254 @@ struct VideoPreviewSurface: View {
         }
     }
 
+    private func observeFrameReady(for item: AVPlayerItem) {
+        itemStatusObservation = nil
+        itemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self, item.status == .readyToPlay else { return }
+                self.isFrameReady = true
+                self.beginPlaybackIfPending()
+            }
+        }
+    }
+
+    private func beginPlaybackIfPending() {
+        guard pendingAutoplay, let player else { return }
+        pendingAutoplay = false
+        player.play()
+        isPlaying = true
+    }
+
+    private func removeTimeObserver() {
+        if let timeObserver, let timeObserverPlayer {
+            timeObserverPlayer.removeTimeObserver(timeObserver)
+        }
+        timeObserver = nil
+        timeObserverPlayer = nil
+    }
+
+    private func addTimeObserver(to player: AVPlayer) {
+        removeTimeObserver()
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self, weak player] time in
+            guard let self, let player, self.player === player, !isScrubbing else { return }
+            currentTime = time.seconds.isFinite ? time.seconds : 0
+            isPlaying = player.timeControlStatus == .playing
+            if let itemDuration = player.currentItem?.duration.seconds,
+               itemDuration.isFinite,
+               itemDuration > 0 {
+                duration = itemDuration
+            }
+        }
+        timeObserverPlayer = player
+    }
+}
+
+struct VideoPreviewControlsBar: View {
+    @ObservedObject var controller: VideoPlaybackController
+    var layout: Layout = .photos
+
+    enum Layout {
+        case photos
+        case stacked
+    }
+
+    var body: some View {
+        Group {
+            switch layout {
+            case .photos:
+                photosLayout
+            case .stacked:
+                stackedLayout
+            }
+        }
+    }
+
+    private var photosLayout: some View {
+        HStack(spacing: 10) {
+            Text(formatTime(controller.currentTime))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(minWidth: 42, alignment: .leading)
+
+            Slider(
+                value: sliderBinding,
+                in: 0...max(controller.duration, 0.1),
+                onEditingChanged: handleScrubbing
+            )
+            .tint(.white)
+
+            Text(formatTime(controller.duration))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.92))
+                .frame(minWidth: 42, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var stackedLayout: some View {
+        VStack(spacing: 8) {
+            Slider(
+                value: sliderBinding,
+                in: 0...max(controller.duration, 0.1),
+                onEditingChanged: handleScrubbing
+            )
+            .tint(.white)
+            HStack {
+                Text(formatTime(controller.currentTime))
+                Spacer()
+                Text(formatTime(controller.duration))
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.82))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var sliderBinding: Binding<Double> {
+        Binding(
+            get: { controller.currentTime },
+            set: { newValue in
+                controller.currentTime = newValue
+                controller.isScrubbing = true
+            }
+        )
+    }
+
+    private func handleScrubbing(_ editing: Bool) {
+        controller.isScrubbing = editing
+        guard !editing, let player = controller.player else { return }
+        player.seek(to: CMTime(seconds: controller.currentTime, preferredTimescale: 600))
+    }
+
     private func formatTime(_ value: Double) -> String {
         guard value.isFinite else { return "0:00" }
         let seconds = max(Int(value.rounded()), 0)
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+struct VideoPreviewSurface: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let asset: PHAsset
+    @ObservedObject var controller: VideoPlaybackController
+    var showsInlineControls: Bool = true
+    var isActive: Bool = true
+
+    private var managesPlayback: Bool { showsInlineControls }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black
+            videoPlaceholder
+
+            if isActive,
+               controller.loadedAssetID == asset.localIdentifier,
+               let player = controller.player {
+                VideoPlayer(player: player)
+                    .opacity(controller.isFrameReady ? 1 : 0)
+                    .animation(.easeIn(duration: 0.18), value: controller.isFrameReady)
+            }
+
+            if isActive {
+                Button {
+                    controller.requestPlay(asset: asset, library: library)
+                } label: {
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 72, height: 72)
+                        .background(.black.opacity(0.42), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if showsInlineControls, isActive, controller.isFrameReady {
+                VideoPreviewControlsBar(controller: controller, layout: .stacked)
+                    .padding(12)
+            }
+        }
+        .onAppear {
+            guard managesPlayback else { return }
+            controller.load(asset: asset, library: library)
+        }
+        .onChange(of: asset.localIdentifier) { _, _ in
+            guard managesPlayback else { return }
+            controller.load(asset: asset, library: library)
+        }
+        .onDisappear {
+            guard managesPlayback else { return }
+            controller.teardown(library: library)
+        }
+    }
+
+    private var videoPlaceholder: some View {
+        ZStack {
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 880, height: 1100)
+            )
+            Image(systemName: "play.fill")
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 72, height: 72)
+                .background(.black.opacity(0.42), in: Circle())
+        }
+    }
+}
+
+private struct AssetPreviewVideoContent: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    let asset: PHAsset
+    let isActive: Bool
+    @ObservedObject var controller: VideoPlaybackController
+
+    private var showsPlayer: Bool {
+        isActive
+            && controller.loadedAssetID == asset.localIdentifier
+            && controller.player != nil
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 880, height: 1100)
+            )
+
+            if showsPlayer, let player = controller.player {
+                VideoPlayer(player: player)
+                    .opacity(controller.isFrameReady && controller.isPlaying ? 1 : 0)
+                    .animation(.easeIn(duration: 0.15), value: controller.isFrameReady && controller.isPlaying)
+            }
+
+            if isActive {
+                Button {
+                    controller.requestPlay(asset: asset, library: library)
+                } label: {
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 72, height: 72)
+                        .background(.black.opacity(0.42), in: Circle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 72, height: 72)
+                    .background(.black.opacity(0.42), in: Circle())
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
@@ -2381,8 +2707,8 @@ private struct AssetPreviewHost<Content: View>: View {
                     asset: wrapped.asset,
                     assets: assets,
                     onClose: { item = nil },
-                    isSelected: isSelected(wrapped.id),
-                    onToggle: { onToggle(wrapped) },
+                    isSelected: isSelected,
+                    onToggle: { onToggle(IdentifiablePHAsset(asset: $0)) },
                     onTransitionSourceChange: { activeSourceID = $0 }
                 )
                 .toolbar(.hidden, for: .navigationBar)
@@ -2408,16 +2734,16 @@ struct AssetPreviewView: View {
     let assets: [PHAsset]
     @State private var displayedAsset: PHAsset
     var onClose: () -> Void = {}
-    var isSelected: Bool = false
-    var onToggle: (() -> Void)? = nil
+    var isSelected: (String) -> Bool = { _ in false }
+    var onToggle: (PHAsset) -> Void = { _ in }
     var onTransitionSourceChange: ((String) -> Void)? = nil
 
     init(
         asset: PHAsset,
         assets: [PHAsset] = [],
         onClose: @escaping () -> Void = {},
-        isSelected: Bool = false,
-        onToggle: (() -> Void)? = nil,
+        isSelected: @escaping (String) -> Bool = { _ in false },
+        onToggle: @escaping (PHAsset) -> Void = { _ in },
         onTransitionSourceChange: ((String) -> Void)? = nil
     ) {
         let resolvedAssets = assets.isEmpty ? [asset] : assets
@@ -2438,9 +2764,14 @@ struct AssetPreviewView: View {
     @State private var isDetailBarPresented = false
     @State private var locationDescription: String = "-"
     @State private var storageDescription: String = "-"
+    @StateObject private var videoPlayback = VideoPlaybackController()
 
     private static let border: CGFloat = 20
     private static let detailPanelHeight: CGFloat = 120
+
+    private var displayedIsSelected: Bool {
+        isSelected(displayedAsset.localIdentifier)
+    }
 
     var body: some View {
         ZStack {
@@ -2453,7 +2784,7 @@ struct AssetPreviewView: View {
                 if assets.count > 1 {
                     TabView(selection: $currentIndex) {
                         ForEach(Array(assets.enumerated()), id: \.element.localIdentifier) { index, asset in
-                            previewPage(for: asset)
+                            previewPage(for: asset, isActive: index == currentIndex)
                                 .tag(index)
                         }
                     }
@@ -2465,12 +2796,42 @@ struct AssetPreviewView: View {
             }
             .ignoresSafeArea()
 
+            if displayedAsset.mediaType == .video,
+               videoPlayback.isReady(for: displayedAsset.localIdentifier) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.55)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 88)
+                    .allowsHitTesting(false)
+                    VideoPreviewControlsBar(controller: videoPlayback, layout: .photos)
+                        .padding(.bottom, 6)
+                }
+            }
+
             detailOverlay
+
+            VStack {
+                HStack {
+                    Spacer()
+                    previewSelectionButton
+                        .padding(.trailing, 16)
+                }
+                .padding(.top, 12)
+                Spacer()
+            }
         }
         .background(Color.black)
         .onAppear {
             isDetailBarPresented = true
             onTransitionSourceChange?(displayedAsset.localIdentifier)
+            preheatAdjacentThumbnails(around: currentIndex)
+        }
+        .onDisappear {
+            videoPlayback.teardown(library: library)
         }
         .onChange(of: currentIndex) { _, index in
             guard assets.indices.contains(index) else { return }
@@ -2480,10 +2841,37 @@ struct AssetPreviewView: View {
             isZoomed = false
             showDetail = true
             isDetailBarPresented = true
+            videoPlayback.teardown(library: library)
+            preheatAdjacentThumbnails(around: index)
         }
         .task(id: displayedAsset.localIdentifier) {
+            guard showDetail else { return }
             await loadDetailMetadata()
         }
+        .onChange(of: showDetail) { _, isShown in
+            guard isShown else { return }
+            Task { await loadDetailMetadata() }
+        }
+    }
+
+    private var previewSelectionButton: some View {
+        Button {
+            onToggle(displayedAsset)
+        } label: {
+            Image(systemName: displayedIsSelected ? "checkmark.circle.fill" : "circle")
+                .font(.title3.weight(.semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(
+                    displayedIsSelected ? .white : .white.opacity(0.92),
+                    displayedIsSelected ? Color.cleanerBlue : .black.opacity(0.35)
+                )
+                .frame(width: 34, height: 34)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(displayedIsSelected ? "unselect" : "select"))
     }
 
     private var detailOverlay: some View {
@@ -2514,28 +2902,39 @@ struct AssetPreviewView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .ignoresSafeArea()
     }
 
-    private func previewPage(for asset: PHAsset) -> some View {
+    private func previewPage(for asset: PHAsset, isActive: Bool = true) -> some View {
         GeometryReader { geo in
             let fitted = mediaFittedSize(for: asset, in: geo.size)
-            ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
-                mediaContent(for: asset)
+            ZoomableScrollView(
+                isZoomed: isActive ? $isZoomed : .constant(false),
+                resetTrigger: isActive ? zoomReset : 0
+            ) {
+                mediaContent(for: asset, isActive: isActive)
                     .frame(width: fitted.width, height: fitted.height)
                     .frame(width: geo.size.width, height: geo.size.height)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
-            .onTapGesture { dismiss() }
+            .onTapGesture {
+                guard isActive else { return }
+                dismiss()
+            }
         }
     }
 
     @ViewBuilder
-    private func mediaContent(for asset: PHAsset) -> some View {
+    private func mediaContent(for asset: PHAsset, isActive: Bool = true) -> some View {
         if asset.mediaType == .video {
-            VideoPreviewSurface(asset: asset)
+            AssetPreviewVideoContent(
+                asset: asset,
+                isActive: isActive,
+                controller: videoPlayback
+            )
         } else if asset.mediaSubtypes.contains(.photoLive) {
             LivePhotoPreview(
                 asset: asset,
@@ -2606,6 +3005,16 @@ struct AssetPreviewView: View {
 
     private func dismiss() {
         onClose()
+    }
+
+    private func preheatAdjacentThumbnails(around index: Int) {
+        let indices = [index - 1, index, index + 1].filter { assets.indices.contains($0) }
+        let nearbyAssets = indices.map { assets[$0] }
+        guard !nearbyAssets.isEmpty else { return }
+        library.preheatThumbnails(
+            for: nearbyAssets,
+            targetSize: CGSize(width: 880, height: 1100)
+        )
     }
 
     @MainActor
