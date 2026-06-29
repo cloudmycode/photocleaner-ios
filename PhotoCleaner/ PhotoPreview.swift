@@ -523,6 +523,9 @@ struct MonthlyReviewView: View {
     @State private var showDeleteConfirmation = false
     @State private var deletionError: String?
     @State private var previewAsset: IdentifiablePHAsset?
+    @State private var deckTransitionGeneration = 0
+
+    private let monthlySwipeThreshold: CGFloat = 60
 
     private var availableAssets: [PHAsset] {
         assets.filter { !removedIDs.contains($0.localIdentifier) }
@@ -563,19 +566,7 @@ struct MonthlyReviewView: View {
                         reviewDeck(asset, containerSize: geo.size)
                     }
                     .padding(.horizontal, 22)
-
-                    HStack(spacing: 36) {
-                        ActionCircle(systemName: "arrow.up", tint: .cleanerGreen) {
-                            flyOutAndReview(asset, markForDeletion: false)
-                        }
-                        .accessibilityLabel(Text("keep"))
-
-                        ActionCircle(systemName: "trash", tint: .red) {
-                            flyOutAndReview(asset, markForDeletion: true)
-                        }
-                        .accessibilityLabel(Text("mark.for.deletion"))
-                    }
-                    .padding(.vertical, 16)
+                    .padding(.bottom, 16)
                 }
             } else {
                 ContentUnavailableView(
@@ -729,17 +720,15 @@ struct MonthlyReviewView: View {
         .overlay {
             if !isZoomed, offset.height > 30 {
                 swipeBadge(
-                    title: String(localized: "mark.for.deletion"),
-                    systemName: "trash",
-                    color: .red,
-                    alignment: .bottom
+                    title: String(localized: "delete"),
+                    systemName: "arrow.down",
+                    color: .red
                 )
             } else if !isZoomed, offset.height < -30 {
                 swipeBadge(
                     title: String(localized: "keep"),
                     systemName: "arrow.up",
-                    color: .cleanerGreen,
-                    alignment: .top
+                    color: .cleanerGreen
                 )
             }
         }
@@ -770,9 +759,11 @@ struct MonthlyReviewView: View {
                 guard !isZoomed, !isExitingCard else {
                     return
                 }
-                if value.translation.height > 110 {
+                let dy = value.translation.height
+                let predictedDY = value.predictedEndTranslation.height
+                if dy > monthlySwipeThreshold || predictedDY > monthlySwipeThreshold * 1.5 {
                     flyOutAndReview(asset, markForDeletion: true, containerHeight: containerHeight)
-                } else if value.translation.height < -110 {
+                } else if dy < -monthlySwipeThreshold || predictedDY < -monthlySwipeThreshold * 1.5 {
                     flyOutAndReview(asset, markForDeletion: false, containerHeight: containerHeight)
                 } else {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
@@ -787,7 +778,18 @@ struct MonthlyReviewView: View {
         markForDeletion: Bool,
         containerHeight: CGFloat? = nil
     ) {
-        guard !isExitingCard, promotedAsset == nil else { return }
+        guard !isExitingCard else { return }
+        guard asset.localIdentifier == deckAsset?.localIdentifier else { return }
+
+        deckTransitionGeneration += 1
+        let generation = deckTransitionGeneration
+
+        if frontCardOffsetY != 0 || frontCardScale != 1 || promotedAsset != nil {
+            offset = CGSize(width: 0, height: offset.height + frontCardOffsetY)
+            promotedAsset = nil
+            finalizeFrontCardPresentation(animated: false)
+        }
+
         let promoted = nextAsset
         let shouldPromote = promoted != nil
         lockedStackAsset = promoted
@@ -799,6 +801,7 @@ struct MonthlyReviewView: View {
         }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(280))
+            guard generation == deckTransitionGeneration else { return }
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -827,8 +830,29 @@ struct MonthlyReviewView: View {
                     frontCardOpacity = 1
                 }
                 try? await Task.sleep(for: .milliseconds(420))
+                guard generation == deckTransitionGeneration else { return }
                 suppressStackedPreview = false
                 promotedAsset = nil
+            }
+        }
+    }
+
+    private func finalizeFrontCardPresentation(animated: Bool) {
+        let apply = {
+            frontCardScale = 1
+            frontCardOffsetY = 0
+            frontCardOpacity = 1
+            suppressStackedPreview = false
+        }
+        if animated {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
+                apply()
+            }
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                apply()
             }
         }
     }
@@ -836,8 +860,7 @@ struct MonthlyReviewView: View {
     private func swipeBadge(
         title: String,
         systemName: String,
-        color: Color,
-        alignment: Alignment
+        color: Color
     ) -> some View {
         Label(title, systemImage: systemName)
             .font(.caption.bold())
@@ -845,7 +868,7 @@ struct MonthlyReviewView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(color, in: Capsule())
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(16)
     }
 
@@ -902,6 +925,7 @@ struct MonthlyReviewView: View {
 
     private func undo() {
         guard let action = history.popLast() else { return }
+        deckTransitionGeneration += 1
         promotedAsset = nil
         reviewedIDs.remove(action.id)
         library.setMonthlyAsset(action.id, reviewed: false, monthID: monthID)

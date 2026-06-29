@@ -62,6 +62,7 @@
 "unselect" = "選択解除";
 "undo" = "取り消す";
 "keep" = "残す";
+"delete" = "削除";
 "swipe.card.id" = "身分証明書";
 "photo.baby.best" = "ランチ写真（ベスト）";
 "photo.baby.blink" = "ランチ写真（目つぶり）";
