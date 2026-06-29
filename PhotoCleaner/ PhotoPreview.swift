@@ -524,6 +524,7 @@ struct MonthlyReviewView: View {
     @State private var deletionError: String?
     @State private var previewAsset: IdentifiablePHAsset?
     @State private var deckTransitionGeneration = 0
+    @State private var showMarkedList = false
 
     private let monthlySwipeThreshold: CGFloat = 60
 
@@ -555,19 +556,27 @@ struct MonthlyReviewView: View {
         promotedAsset ?? currentAsset
     }
 
+    private var showsCardShadow: Bool {
+        !isZoomed && !isExitingCard && offset == .zero && frontCardOffsetY == 0
+    }
+
     var body: some View {
         Group {
             if let asset = deckAsset {
                 VStack(spacing: 0) {
-                    reviewToolbar
-                        .padding(.top, 16)
+                    if !isZoomed {
+                        reviewToolbar
+                            .padding(.top, 16)
+                            .transition(.opacity)
+                    }
 
                     GeometryReader { geo in
                         reviewDeck(asset, containerSize: geo.size)
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 16)
+                    .padding(.horizontal, isZoomed ? 0 : 22)
+                    .padding(.bottom, isZoomed ? 0 : 16)
                 }
+                .animation(.easeInOut(duration: 0.22), value: isZoomed)
             } else {
                 ContentUnavailableView(
                     "month.review.complete",
@@ -577,7 +586,7 @@ struct MonthlyReviewView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !markedIDs.isEmpty {
+            if !markedIDs.isEmpty, !isZoomed {
                 markedPhotosBar
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -622,7 +631,24 @@ struct MonthlyReviewView: View {
         .onChange(of: library.markedIDs(for: monthID)) {
             syncReviewState()
         }
-        .assetPreview($previewAsset, assets: availableAssets)
+        .navigationDestination(isPresented: $showMarkedList) {
+            MonthlyMarkedPhotosView(
+                monthID: monthID,
+                assets: availableAssets,
+                markedIDs: $markedIDs,
+                reviewedIDs: $reviewedIDs,
+                history: $history,
+                onDeleted: { identifiers in
+                    removedIDs.formUnion(identifiers)
+                }
+            )
+        }
+        .assetPreview(
+            $previewAsset,
+            assets: availableAssets,
+            isSelected: { markedIDs.contains($0) },
+            onToggle: { togglePreviewMark(for: $0.asset) }
+        )
     }
 
     private func syncReviewState() {
@@ -658,7 +684,8 @@ struct MonthlyReviewView: View {
     private func reviewDeck(_ asset: PHAsset, containerSize: CGSize) -> some View {
         ZStack {
             if let backAsset = stackedAsset(behind: asset),
-               backAsset.localIdentifier != asset.localIdentifier {
+               backAsset.localIdentifier != asset.localIdentifier,
+               !isZoomed {
                 stackedPreviewCard(backAsset, containerSize: containerSize)
                     .scaleEffect(0.96)
                     .offset(y: 18)
@@ -704,19 +731,36 @@ struct MonthlyReviewView: View {
     @ViewBuilder
     private func reviewCard(_ asset: PHAsset, containerSize: CGSize) -> some View {
         let photoSize = monthlyPhotoSize(for: asset, in: containerSize)
-        ZStack(alignment: .topLeading) {
-            ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
-                PhotoThumbnailView(
-                    asset: asset,
-                    targetSize: CGSize(width: 880, height: 1100)
-                )
-                .id(asset.localIdentifier)
-            }
+        let cardShape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+
+        ZoomableScrollView(isZoomed: $isZoomed, resetTrigger: zoomReset) {
+            PhotoThumbnailView(
+                asset: asset,
+                targetSize: CGSize(width: 1080, height: 1080)
+            )
+            .id(asset.localIdentifier)
             .frame(width: photoSize.width, height: photoSize.height)
+            .frame(width: containerSize.width, height: containerSize.height)
         }
-        .frame(width: photoSize.width, height: photoSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .frame(width: containerSize.width, height: containerSize.height)
+        .mask {
+            if isZoomed {
+                Rectangle()
+            } else {
+                cardShape
+                    .frame(width: photoSize.width, height: photoSize.height)
+                    .frame(width: containerSize.width, height: containerSize.height)
+            }
+        }
         .assetPreviewSource(id: asset.localIdentifier)
+        .overlay {
+            if !isZoomed {
+                cardShape
+                    .stroke(Color.cleanerBorder.opacity(0.55), lineWidth: 0.5)
+                    .frame(width: photoSize.width, height: photoSize.height)
+                    .frame(width: containerSize.width, height: containerSize.height)
+            }
+        }
         .overlay {
             if !isZoomed, offset.height > 30 {
                 swipeBadge(
@@ -732,11 +776,10 @@ struct MonthlyReviewView: View {
                 )
             }
         }
-        .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+        .shadow(color: .black.opacity(showsCardShadow ? 0.18 : 0), radius: 18, y: 10)
         .scaleEffect(frontCardScale)
         .opacity(frontCardOpacity)
         .offset(x: offset.width, y: offset.height + frontCardOffsetY)
-        .frame(width: containerSize.width, height: containerSize.height)
         .simultaneousGesture(monthlyDragGesture(for: asset, containerHeight: containerSize.height))
         .onTapGesture {
             guard !isZoomed, !isExitingCard else { return }
@@ -747,6 +790,11 @@ struct MonthlyReviewView: View {
                 resetPhotoTransform(animated: false)
             }
         }
+    }
+
+    private func resetZoom() {
+        zoomReset += 1
+        isZoomed = false
     }
 
     private func monthlyDragGesture(for asset: PHAsset, containerHeight: CGFloat) -> some Gesture {
@@ -874,19 +922,32 @@ struct MonthlyReviewView: View {
 
     private var markedPhotosBar: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(
-                    String.localizedStringWithFormat(
-                        String(localized: "month.marked.format"),
-                        markedIDs.count
-                    )
-                )
-                .font(.subheadline.bold())
-                Text("month.marked.description")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Button {
+                showMarkedList = true
+            } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(
+                            String.localizedStringWithFormat(
+                                String(localized: "month.marked.format"),
+                                markedIDs.count
+                            )
+                        )
+                        .font(.subheadline.bold())
+                        Text("month.marked.description")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
             }
-            Spacer()
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("month.marked.browse"))
+
             Button {
                 showDeleteConfirmation = true
             } label: {
@@ -919,8 +980,35 @@ struct MonthlyReviewView: View {
         if markForDeletion {
             markedIDs.insert(id)
         }
-        zoomReset += 1
-        isZoomed = false
+        resetZoom()
+    }
+
+    private func togglePreviewMark(for asset: PHAsset) {
+        let id = asset.localIdentifier
+        if markedIDs.contains(id) {
+            library.setMonthlyAsset(id, reviewed: false, monthID: monthID)
+            markedIDs.remove(id)
+            reviewedIDs.remove(id)
+            history.removeAll { $0.id == id }
+            return
+        }
+
+        if reviewedIDs.contains(id) {
+            if let index = history.lastIndex(where: { $0.id == id }) {
+                history[index] = MonthReviewAction(id: id, markedForDeletion: true)
+            } else {
+                history.append(MonthReviewAction(id: id, markedForDeletion: true))
+            }
+        } else {
+            history.append(MonthReviewAction(id: id, markedForDeletion: true))
+            reviewedIDs.insert(id)
+        }
+        library.setMonthlyAsset(id, reviewed: true, markedForDeletion: true, monthID: monthID)
+        markedIDs.insert(id)
+
+        if id == deckAsset?.localIdentifier {
+            resetZoom()
+        }
     }
 
     private func undo() {
@@ -959,8 +1047,7 @@ struct MonthlyReviewView: View {
 
     private func resetPhotoTransform(animated: Bool) {
         let reset = {
-            zoomReset += 1
-            isZoomed = false
+            resetZoom()
             offset = .zero
             frontCardScale = 1
             frontCardOffsetY = 0
@@ -972,6 +1059,165 @@ struct MonthlyReviewView: View {
             }
         } else {
             reset()
+        }
+    }
+}
+
+private struct MonthlyMarkedPhotosView: View {
+    @EnvironmentObject private var library: PhotoLibraryService
+    @Environment(\.dismiss) private var dismiss
+
+    let monthID: String
+    let assets: [PHAsset]
+    @Binding var markedIDs: Set<String>
+    @Binding var reviewedIDs: Set<String>
+    @Binding var history: [MonthReviewAction]
+    let onDeleted: (Set<String>) -> Void
+
+    @State private var previewAsset: IdentifiablePHAsset?
+    @State private var showDeleteConfirmation = false
+    @State private var deletionError: String?
+
+    private var markedAssets: [PHAsset] {
+        assets.filter { markedIDs.contains($0.localIdentifier) }
+    }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    }
+
+    var body: some View {
+        Group {
+            if markedAssets.isEmpty {
+                ContentUnavailableView(
+                    "month.marked.empty",
+                    systemImage: "photo.on.rectangle.angled",
+                    description: Text("month.marked.empty.description")
+                )
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 2) {
+                        ForEach(markedAssets, id: \.localIdentifier) { asset in
+                            AssetGridItem(
+                                asset: asset,
+                                isSelected: true,
+                                storageText: formattedStorage(library.storageBytes(for: asset)),
+                                showsVideoBadge: asset.mediaType == .video,
+                                onToggle: { unmark(asset) },
+                                onPreview: {
+                                    previewAsset = IdentifiablePHAsset(asset: asset)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.top, 2)
+                    .padding(.bottom, 104)
+                }
+            }
+        }
+        .navigationTitle("month.marked.title")
+        .navigationBarTitleDisplayMode(.inline)
+        .animatedTabBarHidden()
+        .background(Color.cleanerBackground)
+        .overlay(alignment: .bottomTrailing) {
+            if !markedAssets.isEmpty {
+                deleteMarkedButton
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 18)
+            }
+        }
+        .assetPreview(
+            $previewAsset,
+            assets: markedAssets,
+            isSelected: { markedIDs.contains($0) },
+            onToggle: { unmark($0.asset) }
+        )
+        .confirmationDialog(
+            "month.delete.confirm.title",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("month.delete.confirm.action", role: .destructive) {
+                deleteMarkedPhotos()
+            }
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text(
+                String.localizedStringWithFormat(
+                    String(localized: "month.delete.confirm.message"),
+                    markedIDs.count
+                )
+            )
+        }
+        .alert("delete.failed", isPresented: Binding(
+            get: { deletionError != nil },
+            set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deletionError ?? "")
+        }
+        .onChange(of: markedIDs.isEmpty) { _, isEmpty in
+            if isEmpty {
+                dismiss()
+            }
+        }
+    }
+
+    private var deleteMarkedButton: some View {
+        Button {
+            showDeleteConfirmation = true
+        } label: {
+            HStack(spacing: 10) {
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "month.marked.format"),
+                        markedIDs.count
+                    )
+                )
+                .font(.subheadline.bold())
+                .monospacedDigit()
+                Image(systemName: "trash.fill")
+                    .font(.headline)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .background(Color.red, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 14, y: 8)
+        }
+        .accessibilityLabel(Text("month.delete.marked"))
+    }
+
+    private func unmark(_ asset: PHAsset) {
+        let id = asset.localIdentifier
+        guard markedIDs.contains(id) else { return }
+        library.setMonthlyAsset(id, reviewed: false, monthID: monthID)
+        markedIDs.remove(id)
+        reviewedIDs.remove(id)
+        history.removeAll { $0.id == id }
+    }
+
+    private func deleteMarkedPhotos() {
+        let identifiers = markedIDs
+        Task {
+            do {
+                try await library.deleteAssets(with: identifiers)
+                identifiers.forEach {
+                    library.setMonthlyAsset(
+                        $0,
+                        reviewed: false,
+                        monthID: monthID
+                    )
+                }
+                onDeleted(identifiers)
+                reviewedIDs.subtract(identifiers)
+                markedIDs.subtract(identifiers)
+                history.removeAll { identifiers.contains($0.id) }
+            } catch {
+                deletionError = error.localizedDescription
+            }
         }
     }
 }

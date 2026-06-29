@@ -133,6 +133,10 @@
 "mark.for.deletion" = "标记删除";
 "month.marked.format" = "已标记 %d 张照片";
 "month.marked.description" = "完成检查后统一删除";
+"month.marked.title" = "已标记的照片";
+"month.marked.browse" = "查看已标记照片";
+"month.marked.empty" = "暂无已标记照片";
+"month.marked.empty.description" = "划动标记删除的照片会显示在这里。";
 "month.delete.marked" = "删除已标记照片";
 "month.delete.confirm.title" = "删除已标记的照片？";
 "month.delete.confirm.message" = "%d 张照片将被移至“最近删除”。";

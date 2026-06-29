@@ -133,6 +133,10 @@
 "mark.for.deletion" = "削除対象にする";
 "month.marked.format" = "%d 枚を削除対象に設定";
 "month.marked.description" = "確認後にまとめて削除します";
+"month.marked.title" = "削除対象の写真";
+"month.marked.browse" = "削除対象の写真を表示";
+"month.marked.empty" = "削除対象の写真はありません";
+"month.marked.empty.description" = "削除対象に設定した写真がここに表示されます。";
 "month.delete.marked" = "選択した写真を削除";
 "month.delete.confirm.title" = "選択した写真を削除しますか？";
 "month.delete.confirm.message" = "%d 枚の写真が「最近削除した項目」に移動します。";

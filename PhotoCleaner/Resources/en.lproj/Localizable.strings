@@ -133,6 +133,10 @@
 "mark.for.deletion" = "Mark for deletion";
 "month.marked.format" = "%d photos marked";
 "month.marked.description" = "Review first, then delete together";
+"month.marked.title" = "Marked Photos";
+"month.marked.browse" = "View marked photos";
+"month.marked.empty" = "No Marked Photos";
+"month.marked.empty.description" = "Photos you mark for deletion will appear here.";
 "month.delete.marked" = "Delete marked photos";
 "month.delete.confirm.title" = "Delete Marked Photos?";
 "month.delete.confirm.message" = "%d photos will be moved to Recently Deleted.";
