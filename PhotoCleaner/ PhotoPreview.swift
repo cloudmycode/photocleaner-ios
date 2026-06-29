@@ -4666,7 +4666,7 @@ private struct LanguageOptionRow: View {
         HStack(spacing: 12) {
             Text(title)
                 .foregroundStyle(.primary)
-            Spacer()
+            Spacer(minLength: 0)
             if isSelected {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
@@ -4675,7 +4675,8 @@ private struct LanguageOptionRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .frame(minHeight: 52)
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        .contentShape(Rectangle())
         .overlay(alignment: .bottom) { Divider().padding(.leading, 16) }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

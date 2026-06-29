@@ -29,7 +29,6 @@ struct PhotoCleanerApp: App {
                 .environmentObject(photoLibrary)
                 .environment(\.locale, languageSettings.locale)
                 .environment(languageSettings)
-                .id(languageSettings.effectiveLocaleIdentifier)
                 .task {
                     photoLibrary.start()
                 }
