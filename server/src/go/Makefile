@@ -12,6 +12,10 @@ run: build
 test: build
 	go run test.go
 
+# 调用真实大模型测试 enrich prompt（需 DEEPSEEK_API_KEY）
+test-integration:
+	go test -tags=integration -run 'TestEnrichPromptLLM|TestEnrichPromptLLM_FromIndexJSON' -v -count=1 ./...
+
 # 清理
 clean:
 	rm -f smart-search

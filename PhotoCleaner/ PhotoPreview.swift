@@ -84,10 +84,6 @@ private struct InitialAnalysisView: View {
            duplicateProgress.total > 0 {
             return Double(duplicateProgress.current) / Double(duplicateProgress.total)
         }
-        if case let .analyzing(current, total) = library.scanState,
-           total > 0 {
-            return Double(current) / Double(total)
-        }
         return nil
     }
 
@@ -100,13 +96,6 @@ private struct InitialAnalysisView: View {
                 L("duplicate.analyzing.format"),
                 duplicateProgress.current,
                 duplicateProgress.total
-            )
-        }
-        if case let .analyzing(current, total) = library.scanState {
-            return String.localizedStringWithFormat(
-                L("burst.analyzing.format"),
-                current,
-                total
             )
         }
         return L("initial.analysis.preparing")
@@ -176,10 +165,6 @@ struct QuickCleanView: View {
             CleanerCategory.duplicates(
                 count: library.duplicateCandidateCount,
                 size: formattedStorage(library.duplicateCandidateStorageBytes)
-            ),
-            CleanerCategory.bursts(
-                count: library.burstCandidateCount,
-                size: formattedStorage(library.burstCandidateStorageBytes)
             ),
             CleanerCategory.screenshots(
                 count: library.screenshotCount,
@@ -327,9 +312,7 @@ struct QuickCleanView: View {
     @ViewBuilder
     private func destination(for item: CleanerCategory) -> some View {
         if item.kind == .duplicate {
-            SimilarCleanView(mode: .duplicate)
-        } else if item.kind == .burst {
-            SimilarCleanView(mode: .burst)
+            SimilarCleanView()
         } else if item.kind == .livePhoto {
             LivePhotoCleanView(category: item)
         } else if item.kind.usesAssetGrid {
@@ -355,20 +338,6 @@ struct QuickCleanView: View {
             )
         }
 
-        if item.kind == .burst {
-            if library.duplicateScanProgress != nil {
-                return L("home.item.loading")
-            }
-            if case let .analyzing(current, total) = library.scanState,
-               current < total {
-                return String.localizedStringWithFormat(
-                    L("burst.analyzing.format"),
-                    current,
-                    total
-                )
-            }
-        }
-
         return nil
     }
 
@@ -376,13 +345,6 @@ struct QuickCleanView: View {
         switch item.kind {
         case .duplicate:
             return library.hasDuplicateScanResults || library.duplicateScanProgress == nil
-        case .burst:
-            if library.hasCompletedInitialAnalysis { return true }
-            if library.duplicateScanProgress != nil { return false }
-            if case let .analyzing(current, total) = library.scanState {
-                return current >= total
-            }
-            return true
         default:
             return true
         }
@@ -422,13 +384,6 @@ struct QuickCleanView: View {
                     L("duplicate.analyzing.format"),
                     progress.current,
                     progress.total
-                )
-            }
-            if case let .analyzing(current, total) = library.scanState {
-                return String.localizedStringWithFormat(
-                    L("burst.analyzing.format"),
-                    current,
-                    total
                 )
             }
             return L("analysis.complete")
@@ -1395,37 +1350,16 @@ private struct MonthAssetRow: View {
     }
 }
 
-enum PhotoGroupCleanMode {
-    case duplicate
-    case burst
-}
-
 struct SimilarCleanView: View {
     @EnvironmentObject private var library: PhotoLibraryService
-    let mode: PhotoGroupCleanMode
     @State private var selectedIDs = Set<String>()
     @State private var previewPhoto: IdentifiablePHAsset?
     @State private var deletionError: String?
     @State private var showDeleteConfirmation = false
 
     private var selectedCount: Int { selectedIDs.count }
-    private var expectedCandidateCount: Int {
-        switch mode {
-        case .duplicate:
-            return library.duplicateCandidateCount
-        case .burst:
-            return library.burstCandidateCount
-        }
-    }
-
-    private var groups: [SimilarAssetGroup] {
-        switch mode {
-        case .duplicate:
-            return library.duplicateGroups
-        case .burst:
-            return library.burstGroups
-        }
-    }
+    private var expectedCandidateCount: Int { library.duplicateCandidateCount }
+    private var groups: [SimilarAssetGroup] { library.duplicateGroups }
 
     private var previewAssets: [PHAsset] {
         groups.flatMap(\.assets).map(\.asset)
@@ -1436,10 +1370,10 @@ struct SimilarCleanView: View {
             VStack(spacing: 18) {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(titleKey)
+                        Text("duplicate.title")
                             .font(.title2.bold())
                         Spacer()
-                        Text(keptKey)
+                        Text("duplicate.original.kept")
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
@@ -1448,9 +1382,9 @@ struct SimilarCleanView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(titleKey)
+                        Text("duplicate.title")
                             .font(.title2.bold())
-                        Text(keptKey)
+                        Text("duplicate.original.kept")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.cleanerGreen)
                     }
@@ -1556,9 +1490,9 @@ struct SimilarCleanView: View {
                     .padding(.top, 60)
                 } else if library.scanState == .finished || library.hasCompletedInitialAnalysis {
                     ContentUnavailableView(
-                        emptyTitleKey,
+                        "duplicate.empty",
                         systemImage: "checkmark.circle",
-                        description: Text(emptyDescriptionKey)
+                        description: Text("duplicate.empty.description")
                     )
                     .padding(.top, 60)
                 } else {
@@ -1577,7 +1511,6 @@ struct SimilarCleanView: View {
                         let group = groups[index]
                         SimilarGroup(
                             title: groupTitle(group, index: index),
-                            mode: mode,
                             group: group,
                             selectedIDs: $selectedIDs,
                             previewPhoto: $previewPhoto
@@ -1589,19 +1522,11 @@ struct SimilarCleanView: View {
     }
 
     private var scanDescription: String {
-        if mode == .duplicate,
-           let progress = library.duplicateScanProgress {
+        if let progress = library.duplicateScanProgress {
             return String.localizedStringWithFormat(
                 L("duplicate.analyzing.format"),
                 progress.current,
                 progress.total
-            )
-        }
-        if case let .analyzing(current, total) = library.scanState {
-            return String.localizedStringWithFormat(
-                L("burst.analyzing.format"),
-                current,
-                total
             )
         }
         return L("library.reading")
@@ -1612,13 +1537,6 @@ struct SimilarCleanView: View {
             return String.localizedStringWithFormat(
                 L("group.number.format"),
                 index + 1
-            )
-        }
-        if mode == .burst {
-            return String.localizedStringWithFormat(
-                L("burst.group.title.format"),
-                date.formatted(date: .abbreviated, time: .shortened),
-                group.assets.count
             )
         }
         return date.formatted(date: .abbreviated, time: .shortened)
@@ -1651,48 +1569,7 @@ struct SimilarCleanView: View {
     }
 
     private func restoreCachedGroupsIfNeeded() {
-        switch mode {
-        case .duplicate:
-            library.restoreCachedDuplicateGroupsIfNeeded()
-        case .burst:
-            library.restoreCachedBurstGroupsIfNeeded()
-        }
-    }
-
-    private var titleKey: LocalizedStringKey {
-        switch mode {
-        case .duplicate:
-            return "duplicate.title"
-        case .burst:
-            return "burst.title"
-        }
-    }
-
-    private var keptKey: LocalizedStringKey {
-        switch mode {
-        case .duplicate:
-            return "duplicate.original.kept"
-        case .burst:
-            return "burst.best.pick"
-        }
-    }
-
-    private var emptyTitleKey: LocalizedStringKey {
-        switch mode {
-        case .duplicate:
-            return "duplicate.empty"
-        case .burst:
-            return "burst.empty"
-        }
-    }
-
-    private var emptyDescriptionKey: LocalizedStringKey {
-        switch mode {
-        case .duplicate:
-            return "duplicate.empty.description"
-        case .burst:
-            return "burst.empty.description"
-        }
+        library.restoreCachedDuplicateGroupsIfNeeded()
     }
 
     private func toggle(_ photo: SimilarAsset) {
@@ -3495,12 +3372,15 @@ struct SmartPhotoSearchView: View {
     @StateObject private var speech = PhotoSearchSpeechInput()
 
     @State private var queryText = ""
+    @State private var submittedQuery = ""
     @State private var results: [PHAsset] = []
+    @State private var resultStorageLabels: [String: String] = [:]
     @State private var isParsing = false
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var previewAsset: IdentifiablePHAsset?
     @State private var didStartPress = false
+    @FocusState private var isSearchFieldFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -3520,14 +3400,33 @@ struct SmartPhotoSearchView: View {
             }
             .padding(.bottom, 96)
         }
+        .scrollDismissesKeyboard(.immediately)
+        .simultaneousGesture(
+            TapGesture().onEnded { _ in
+                dismissSearchKeyboard()
+            }
+        )
         .background(Color.cleanerBackground)
         .safeAreaInset(edge: .bottom) {
             searchInputBar
         }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    dismissSearchKeyboard()
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.body.weight(.semibold))
+                }
+                .accessibilityLabel(Text("smart.search.dismiss.keyboard"))
+            }
+        }
         .animatedTabBarVisible()
         .assetPreview($previewAsset, assets: results)
-        .onChange(of: speech.transcript) {
-            queryText = speech.transcript
+        .onChange(of: speech.transcript) { _, newValue in
+            guard speech.isRecording else { return }
+            queryText = newValue
         }
         .alert("smart.search.network.title", isPresented: Binding(
             get: { errorMessage != nil },
@@ -3555,7 +3454,7 @@ struct SmartPhotoSearchView: View {
                     Image(systemName: "photo.stack")
                         .font(.system(size: 34, weight: .semibold))
                         .foregroundStyle(Color.cleanerBlue)
-                    Text(queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "smart.search.empty.idle" : "smart.search.empty.results")
+                    Text(submittedQuery.isEmpty ? "smart.search.empty.idle" : "smart.search.empty.results")
                         .font(.subheadline.weight(.semibold))
                     Text("smart.search.empty.description")
                         .font(.caption)
@@ -3565,21 +3464,15 @@ struct SmartPhotoSearchView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 42)
             } else {
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3),
-                    spacing: 2
-                ) {
-                    ForEach(results, id: \.localIdentifier) { asset in
-                        AssetGridItem(
-                            asset: asset,
-                            isSelected: false,
-                            storageText: formattedStorage(library.storageBytes(for: asset)),
-                            showsVideoBadge: asset.mediaType == .video,
-                            onToggle: {},
-                            onPreview: { previewAsset = IdentifiablePHAsset(asset: asset) }
-                        )
+                SmartSearchResultsGrid(
+                    results: results,
+                    storageLabels: resultStorageLabels,
+                    onPreview: { asset in
+                        dismissSearchKeyboard()
+                        previewAsset = IdentifiablePHAsset(asset: asset)
                     }
-                }
+                )
+                .equatable()
                 .padding(.horizontal, 2)
                 .padding(.bottom, 20)
             }
@@ -3602,6 +3495,11 @@ struct SmartPhotoSearchView: View {
                     .textFieldStyle(.plain)
                     .lineLimit(1...3)
                     .font(.subheadline)
+                    .focused($isSearchFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        dismissSearchKeyboard()
+                    }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .frame(minHeight: 46)
@@ -3670,6 +3568,7 @@ struct SmartPhotoSearchView: View {
                 .onChanged { _ in
                     guard !didStartPress else { return }
                     didStartPress = true
+                    dismissSearchKeyboard()
                     errorMessage = nil
                     queryText = ""
                     speech.start()
@@ -3687,22 +3586,64 @@ struct SmartPhotoSearchView: View {
         .accessibilityLabel(Text("smart.search.hold.to.speak"))
     }
 
+    private func dismissSearchKeyboard() {
+        isSearchFieldFocused = false
+    }
+
     private func submitQuery(_ rawText: String) {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isParsing, !isSearching else { return }
         errorMessage = nil
+        submittedQuery = text
         results = []
+        resultStorageLabels = [:]
         isParsing = true
         isSearching = true
+        dismissSearchKeyboard()
         Task {
             do {
-                results = try await SmartSearchService.search(query: text)
+                let matched = try await SmartSearchService.search(query: text)
+                let labels = Dictionary(uniqueKeysWithValues: matched.map { asset in
+                    (asset.localIdentifier, formattedStorage(library.storageBytes(for: asset)))
+                })
+                results = matched
+                resultStorageLabels = labels
                 isParsing = false
                 isSearching = false
+                dismissSearchKeyboard()
             } catch {
                 isParsing = false
                 isSearching = false
                 errorMessage = L("smart.search.network.unavailable")
+            }
+        }
+    }
+}
+
+private struct SmartSearchResultsGrid: View, Equatable {
+    let results: [PHAsset]
+    let storageLabels: [String: String]
+    let onPreview: (PHAsset) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.results.map(\.localIdentifier) == rhs.results.map(\.localIdentifier)
+            && lhs.storageLabels == rhs.storageLabels
+    }
+
+    var body: some View {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3),
+            spacing: 2
+        ) {
+            ForEach(results, id: \.localIdentifier) { asset in
+                AssetGridItem(
+                    asset: asset,
+                    isSelected: false,
+                    storageText: storageLabels[asset.localIdentifier] ?? "--",
+                    showsVideoBadge: asset.mediaType == .video,
+                    onToggle: {},
+                    onPreview: { onPreview(asset) }
+                )
             }
         }
     }
@@ -4361,7 +4302,6 @@ private struct CleanerToast: View {
 
 private struct SimilarGroup: View {
     let title: String
-    let mode: PhotoGroupCleanMode
     let group: SimilarAssetGroup
     @Binding var selectedIDs: Set<String>
     @Binding var previewPhoto: IdentifiablePHAsset?
@@ -4392,8 +4332,7 @@ private struct SimilarGroup: View {
                         SimilarPhotoCard(
                             photo: photo,
                             selected: selectedIDs.contains(photo.id),
-                            storageText: formattedStorage(library.storageBytes(for: photo.asset)),
-                            insight: insight(for: photo)
+                            storageText: formattedStorage(library.storageBytes(for: photo.asset))
                         ) {
                             previewPhoto = IdentifiablePHAsset(asset: photo.asset)
                         } toggle: {
@@ -4417,48 +4356,17 @@ private struct SimilarGroup: View {
     private var allCandidatesSelected: Bool {
         !candidateIDs.isEmpty && candidateIDs.isSubset(of: selectedIDs)
     }
-
-    private func insight(for photo: SimilarAsset) -> BurstPhotoInsight? {
-        guard mode == .burst else { return nil }
-        let bestScore = group.assets.map(\.qualityScore).max() ?? photo.qualityScore
-        let scoreGap = bestScore - photo.qualityScore
-        let megapixels = Double(photo.asset.pixelWidth * photo.asset.pixelHeight) / 1_000_000
-
-        if photo.isBest {
-            if photo.asset.isFavorite {
-                return BurstPhotoInsight(text: L("ai.tag.favorite.keep"), tint: .yellow)
-            }
-            return BurstPhotoInsight(text: L("ai.tag.best.keep"), tint: .cleanerGreen)
-        }
-        if scoreGap > 0.18 {
-            return BurstPhotoInsight(text: L("ai.tag.lower.quality"), tint: .orange)
-        }
-        if photo.qualityScore < 0.34 {
-            return BurstPhotoInsight(text: L("ai.tag.possible.blur"), tint: .orange)
-        }
-        if megapixels >= 12 {
-            return BurstPhotoInsight(text: L("ai.tag.high.resolution"), tint: .cleanerBlue)
-        }
-        return BurstPhotoInsight(text: L("ai.tag.similar.cleanable"), tint: .secondary)
-    }
-}
-
-private struct BurstPhotoInsight {
-    let text: String
-    let tint: Color
 }
 
 private struct SimilarPhotoCard: View {
     let photo: SimilarAsset
     let selected: Bool
     let storageText: String
-    let insight: BurstPhotoInsight?
     let preview: () -> Void
     let toggle: () -> Void
 
     var body: some View {
         let cardWidth: CGFloat = photo.asset.pixelWidth > photo.asset.pixelHeight ? 142 : 108
-        let cardHeight: CGFloat = insight == nil ? 146 : 178
 
         ZStack(alignment: .topTrailing) {
             Button(action: preview) {
@@ -4512,20 +4420,8 @@ private struct SimilarPhotoCard: View {
             }
             .padding(7)
             .frame(width: cardWidth, height: 146, alignment: .bottomLeading)
-
-            if let insight {
-                Text(insight.text)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(insight.tint)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .padding(.horizontal, 7)
-                    .frame(width: cardWidth, height: 24, alignment: .leading)
-                    .background(insight.tint.opacity(0.12), in: Capsule())
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-            }
         }
-        .frame(width: cardWidth, height: cardHeight)
+        .frame(width: cardWidth, height: 146)
     }
 }
 
@@ -4747,13 +4643,13 @@ private struct InfoPair: View {
 
 struct CleanerCategory: Identifiable {
     enum Kind: Hashable {
-        case duplicate, burst, screenshot, livePhoto, lowQuality, video, largeVideo, recording, emptyAlbum
+        case duplicate, screenshot, livePhoto, lowQuality, video, largeVideo, recording, emptyAlbum
 
         var usesAssetGrid: Bool {
             switch self {
             case .screenshot, .video, .largeVideo, .recording:
                 return true
-            case .duplicate, .burst, .livePhoto, .lowQuality, .emptyAlbum:
+            case .duplicate, .livePhoto, .lowQuality, .emptyAlbum:
                 return false
             }
         }
@@ -4788,17 +4684,6 @@ struct CleanerCategory: Identifiable {
             color: .orange,
             icon: "rectangle.on.rectangle",
             kind: .duplicate
-        )
-    }
-
-    static func bursts(count: Int, size: String = "") -> CleanerCategory {
-        CleanerCategory(
-            titleKey: "category.bursts",
-            count: count,
-            size: size,
-            color: .cleanerGreen,
-            icon: "camera.on.rectangle",
-            kind: .burst
         )
     }
 

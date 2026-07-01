@@ -143,8 +143,32 @@ func TestUniqueStringsJSONEmptyArray(t *testing.T) {
 
 func TestEnsureMustArrays(t *testing.T) {
 	m := ensureMustArrays(MustMatch{})
-	if m.VisualTagsAll == nil || m.SensitiveTypes == nil || m.OcrContainsAll == nil {
+	if m.SearchKeywordGroups == nil || m.VisualTagsAll == nil || m.SensitiveTypes == nil || m.OcrContainsAll == nil {
 		t.Fatalf("ensureMustArrays: %+v", m)
+	}
+}
+
+func TestNormalizeSearchPlan_KeywordGroups(t *testing.T) {
+	cfg := DefaultConfig()
+	raw := map[string]interface{}{
+		"must": map[string]interface{}{
+			"searchKeywordGroups": []interface{}{
+				[]interface{}{"路由器", "router", "wifi"},
+				[]interface{}{"账号", "account"},
+			},
+			"visualTagsAll": []interface{}{},
+		},
+	}
+
+	plan := normalizeSearchPlan(raw, "路由器账号", cfg)
+	if len(plan.Must.SearchKeywordGroups) != 2 {
+		t.Fatalf("groups: %v", plan.Must.SearchKeywordGroups)
+	}
+	if len(plan.Must.SearchKeywordGroups[0]) != 3 {
+		t.Fatalf("group0: %v", plan.Must.SearchKeywordGroups[0])
+	}
+	if len(plan.Must.VisualTagsAll) != 0 {
+		t.Fatalf("visualTagsAll should be empty: %v", plan.Must.VisualTagsAll)
 	}
 }
 
@@ -152,5 +176,56 @@ func TestNormalizeSensitiveTypes(t *testing.T) {
 	got := normalizeSensitiveTypes([]string{"ID_CARD", "foo", "passport"})
 	if len(got) != 2 {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestRepairSearchKeywordGroups_TruckNotCaliper(t *testing.T) {
+	cfg := DefaultConfig()
+	raw := map[string]interface{}{
+		"must": map[string]interface{}{
+			"searchKeywordGroups": []interface{}{
+				[]interface{}{"卡钳", "caliper", "卡钳工具", "卡钳测量"},
+			},
+		},
+	}
+
+	plan := normalizeSearchPlan(raw, "卡车", cfg)
+	if len(plan.Must.SearchKeywordGroups) != 1 {
+		t.Fatalf("groups: %v", plan.Must.SearchKeywordGroups)
+	}
+	group := plan.Must.SearchKeywordGroups[0]
+	if len(group) != 1 || group[0] != "卡车" {
+		t.Fatalf("expected only user term 卡车, got %v", group)
+	}
+}
+
+func TestRepairSearchKeywordGroups_KeepsValidSynonyms(t *testing.T) {
+	got := repairSearchKeywordGroups("卡车", [][]string{
+		{"卡车", "卡钳", "货车", "truck"},
+	})
+	if len(got) != 1 {
+		t.Fatalf("groups: %v", got)
+	}
+	want := map[string]bool{"卡车": true, "货车": true, "truck": true}
+	for _, word := range got[0] {
+		if !want[word] {
+			t.Fatalf("unexpected keyword %q in %v", word, got[0])
+		}
+		delete(want, word)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing keywords: %v in %v", want, got[0])
+	}
+}
+
+func TestIsLikelyChineseHomographConfusion(t *testing.T) {
+	if !isLikelyChineseHomographConfusion([]string{"卡车"}, "卡钳") {
+		t.Fatal("卡车 vs 卡钳 should be flagged")
+	}
+	if isLikelyChineseHomographConfusion([]string{"卡车"}, "货车") {
+		t.Fatal("卡车 vs 货车 should not be flagged")
+	}
+	if isLikelyChineseHomographConfusion([]string{"卡车"}, "truck") {
+		t.Fatal("卡车 vs truck should not be flagged")
 	}
 }

@@ -41,11 +41,13 @@ func main() {
 
 	// 创建处理器
 	searchHandler := NewSmartSearchHandler(config, logger)
+	enrichHandler := NewEnrichTagsHandler(config, logger)
 	healthHandler := &HealthHandler{}
 
 	// 设置路由
 	mux := http.NewServeMux()
 	mux.HandleFunc("/smart-search", searchHandler.HandleSearch)
+	mux.HandleFunc("/enrich-tags", enrichHandler.HandleEnrich)
 	mux.HandleFunc("/health", healthHandler.HandleHealth)
 
 	// 创建服务器（默认端口 8081，避免与 Nginx 8080 冲突）

@@ -124,4 +124,23 @@ extension PhotoSearchIndexEntry {
             }
             .joined(separator: "\n")
     }
+
+    /// 检索用描述：云端句子优先，否则本地 tag + OCR 拼接
+    var searchableDescriptionText: String {
+        let stored = searchDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !stored.isEmpty { return stored }
+        return Self.makeLocalSearchDescription(
+            visualTags: visualTags ?? [],
+            ocrText: searchableOCRText
+        )
+    }
+
+    static func makeLocalSearchDescription(visualTags: [String], ocrText: String?) -> String {
+        var parts: [String] = []
+        parts.append(contentsOf: visualTags)
+        if let ocr = ocrText?.trimmingCharacters(in: .whitespacesAndNewlines), !ocr.isEmpty {
+            parts.append(ocr)
+        }
+        return parts.joined(separator: " ")
+    }
 }

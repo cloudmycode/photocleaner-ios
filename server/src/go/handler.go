@@ -124,13 +124,14 @@ func (h *SmartSearchHandler) HandleSearch(w http.ResponseWriter, r *http.Request
 	plan.Must = ensureMustArrays(plan.Must)
 
 	h.logger.Info("Smart search completed", map[string]interface{}{
-		"query":         query,
-		"locale":        req.Locale,
-		"appVersion":    req.AppVersion,
-		"tagCount":      len(req.AvailableTags),
-		"visualTagsAll": plan.Must.VisualTagsAll,
-		"sensitive":     plan.Must.SensitiveTypes,
-		"count":         plan.Count,
+		"query":               query,
+		"locale":              req.Locale,
+		"appVersion":          req.AppVersion,
+		"tagCount":            len(req.AvailableTags),
+		"searchKeywordGroups": plan.Must.SearchKeywordGroups,
+		"visualTagsAll":       plan.Must.VisualTagsAll,
+		"sensitive":           plan.Must.SensitiveTypes,
+		"count":               plan.Count,
 	})
 
 	h.writeJSON(w, http.StatusOK, plan)

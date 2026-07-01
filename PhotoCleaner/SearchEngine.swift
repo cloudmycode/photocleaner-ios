@@ -1,6 +1,6 @@
 import Foundation
 
-/// 本地检索：倒排交集 → filters → 按时间截断
+/// 本地检索：关键词描述匹配 / 倒排交集 → filters → 按时间截断
 enum SearchEngine {
     static func match(
         plan: SearchPlan,
@@ -12,24 +12,39 @@ enum SearchEngine {
         guard !indexedIDs.isEmpty else { return [] }
 
         let must = plan.must ?? SearchMust()
-        var ids = intersectGroups(
-            visualTags: must.visualTagsAll ?? [],
-            sensitiveTypes: must.sensitiveTypes ?? [],
-            indexedIDs: indexedIDs,
-            tagPostings: tagPostings,
-            sensitivePostings: sensitivePostings
-        )
+        let keywordGroups = normalizedKeywordGroups(must.searchKeywordGroups ?? [])
+        let visualTags = must.visualTagsAll ?? []
+        let sensitiveTypes = must.sensitiveTypes ?? []
+
+        var ids: Set<String>?
+
+        if !keywordGroups.isEmpty {
+            ids = matchKeywordGroups(keywordGroups, entries: entries, indexedIDs: indexedIDs)
+        }
+
+        if !visualTags.isEmpty || !sensitiveTypes.isEmpty {
+            let visualIDs = intersectGroups(
+                visualTags: visualTags,
+                sensitiveTypes: sensitiveTypes,
+                indexedIDs: indexedIDs,
+                tagPostings: tagPostings,
+                sensitivePostings: sensitivePostings
+            )
+            ids = ids.map { $0.intersection(visualIDs) } ?? visualIDs
+        }
+
+        guard var matchedIDs = ids else { return [] }
 
         for text in must.ocrContainsAll ?? [] {
             let needle = text.lowercased()
             guard !needle.isEmpty else { continue }
-            ids = ids.filter { id in
+            matchedIDs = matchedIDs.filter { id in
                 entries[id]?.searchableOCRText.lowercased().contains(needle) == true
             }
         }
 
         let limit = max(1, min(plan.count ?? 1000, 1000))
-        return ids
+        return matchedIDs
             .compactMap { entries[$0] }
             .filter { passesFilters($0, filters: plan.filters) }
             .sorted {
@@ -37,6 +52,36 @@ enum SearchEngine {
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    private static func normalizedKeywordGroups(_ groups: [[String]]) -> [[String]] {
+        groups.compactMap { group in
+            let words = group
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+            return words.isEmpty ? nil : words
+        }
+    }
+
+    /// 组内任一关键词命中（OR），组间全部满足（AND）
+    private static func matchKeywordGroups(
+        _ groups: [[String]],
+        entries: [String: PhotoSearchIndexEntry],
+        indexedIDs: Set<String>
+    ) -> Set<String> {
+        var matched = Set<String>()
+        for id in indexedIDs {
+            guard let entry = entries[id] else { continue }
+            let haystack = entry.searchableDescriptionText.lowercased()
+            guard !haystack.isEmpty else { continue }
+            let allGroupsHit = groups.allSatisfy { group in
+                group.contains { haystack.contains($0) }
+            }
+            if allGroupsHit {
+                matched.insert(id)
+            }
+        }
+        return matched
     }
 
     private static func intersectGroups(
@@ -57,7 +102,7 @@ enum SearchEngine {
             result = result.map { $0.intersection(group) } ?? group
         }
 
-        let base = result ?? indexedIDs
+        let base = result ?? []
         return base.intersection(indexedIDs)
     }
 

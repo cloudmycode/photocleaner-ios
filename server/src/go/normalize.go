@@ -24,6 +24,7 @@ func normalizeSearchPlan(raw map[string]interface{}, summary string, cfg *Config
 	plan.Must = extractMust(raw)
 	plan.Count = normalizeCount(raw, cfg)
 	plan.Confidence = normalizeConfidence(raw)
+	plan.Must.SearchKeywordGroups = repairSearchKeywordGroups(summary, plan.Must.SearchKeywordGroups)
 
 	stripEmptyFilters(&plan.Filters)
 	plan.Must = ensureMustArrays(plan.Must)
@@ -31,6 +32,9 @@ func normalizeSearchPlan(raw map[string]interface{}, summary string, cfg *Config
 }
 
 func ensureMustArrays(must MustMatch) MustMatch {
+	if must.SearchKeywordGroups == nil {
+		must.SearchKeywordGroups = [][]string{}
+	}
 	if must.VisualTagsAll == nil {
 		must.VisualTagsAll = []string{}
 	}
@@ -47,9 +51,10 @@ func emptySearchPlan(query string, cfg *Config) SearchPlan {
 	return SearchPlan{
 		Summary: query,
 		Must: MustMatch{
-			VisualTagsAll:  []string{},
-			SensitiveTypes: []string{},
-			OcrContainsAll: []string{},
+			SearchKeywordGroups: [][]string{},
+			VisualTagsAll:       []string{},
+			SensitiveTypes:      []string{},
+			OcrContainsAll:      []string{},
 		},
 		Count:      cfg.DefaultCount,
 		Confidence: 0,
@@ -99,37 +104,249 @@ func mergeFiltersFromMap(filters *Filters, m map[string]interface{}) {
 
 func extractMust(raw map[string]interface{}) MustMatch {
 	must := MustMatch{
-		VisualTagsAll:  []string{},
-		SensitiveTypes: []string{},
-		OcrContainsAll: []string{},
+		SearchKeywordGroups: [][]string{},
+		VisualTagsAll:       []string{},
+		SensitiveTypes:      []string{},
+		OcrContainsAll:      []string{},
 	}
 
 	if nested, ok := raw["must"].(map[string]interface{}); ok {
+		must.SearchKeywordGroups = append(must.SearchKeywordGroups, stringMatrixField(nested, "searchKeywordGroups")...)
 		must.VisualTagsAll = append(must.VisualTagsAll, normalizeVisualTags(stringSliceField(nested, "visualTagsAll"))...)
 		must.SensitiveTypes = append(must.SensitiveTypes, normalizeSensitiveTypes(stringSliceField(nested, "sensitiveTypes"))...)
 		must.OcrContainsAll = append(must.OcrContainsAll, stringSliceField(nested, "ocrContainsAll")...)
 	}
 
-	// 新格式：must.visualTagsAll
+	must.SearchKeywordGroups = append(must.SearchKeywordGroups, stringMatrixField(raw, "searchKeywordGroups")...)
 	must.VisualTagsAll = append(must.VisualTagsAll, normalizeVisualTags(stringSliceField(raw, "visualTagsAll"))...)
-
-	// 兼容旧格式：keywords → visualTagsAll（旧 prompt 会拆词，保留拆词逻辑）
 	must.VisualTagsAll = append(must.VisualTagsAll, normalizeLegacyKeywords(stringSliceField(raw, "keywords"))...)
-
-	// 兼容旧格式：visualConcepts → 每个概念取 matchAny 第一个词
 	must.VisualTagsAll = append(must.VisualTagsAll, visualTagsFromConcepts(raw)...)
-
 	must.SensitiveTypes = append(must.SensitiveTypes, normalizeSensitiveTypes(stringSliceField(raw, "sensitiveTypes"))...)
-
-	// 兼容旧格式：ocrKeywords
 	must.OcrContainsAll = append(must.OcrContainsAll, stringSliceField(raw, "ocrKeywords")...)
 	must.OcrContainsAll = append(must.OcrContainsAll, stringSliceField(raw, "ocrContainsAll")...)
 
+	must.SearchKeywordGroups = normalizeKeywordGroups(must.SearchKeywordGroups)
 	must.VisualTagsAll = uniqueStrings(must.VisualTagsAll)
 	must.SensitiveTypes = uniqueStrings(must.SensitiveTypes)
 	must.OcrContainsAll = uniqueStrings(must.OcrContainsAll)
 
 	return must
+}
+
+func stringMatrixField(m map[string]interface{}, key string) [][]string {
+	raw, ok := m[key].([]interface{})
+	if !ok {
+		return nil
+	}
+	var groups [][]string
+	for _, item := range raw {
+		group, ok := item.([]interface{})
+		if !ok {
+			continue
+		}
+		words := stringSliceFromInterface(group)
+		if len(words) > 0 {
+			groups = append(groups, words)
+		}
+	}
+	return groups
+}
+
+func stringSliceFromInterface(items []interface{}) []string {
+	var out []string
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+func normalizeKeywordGroups(groups [][]string) [][]string {
+	var out [][]string
+	for _, group := range groups {
+		words := uniqueStrings(group)
+		if len(words) > 0 {
+			out = append(out, words)
+		}
+	}
+	return out
+}
+
+func repairSearchKeywordGroups(query string, groups [][]string) [][]string {
+	terms := extractSearchQueryTerms(query)
+	if len(terms) == 0 {
+		return groups
+	}
+
+	filtered := make([][]string, 0, len(groups))
+	for _, group := range groups {
+		words := filterMisreadChineseKeywords(terms, group)
+		if len(words) > 0 {
+			filtered = append(filtered, words)
+		}
+	}
+	groups = filtered
+
+	if !groupsContainAnyTerm(groups, terms) {
+		return [][]string{uniqueStrings(terms)}
+	}
+
+	for _, term := range terms {
+		if !queryTermCoveredByGroups(term, groups) {
+			if len(groups) == 0 {
+				groups = [][]string{{term}}
+			} else {
+				groups[0] = prependUnique([]string{term}, groups[0])
+			}
+		}
+	}
+
+	return normalizeKeywordGroups(groups)
+}
+
+func queryTermCoveredByGroups(term string, groups [][]string) bool {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return true
+	}
+	if groupsContainKeyword(groups, term) {
+		return true
+	}
+
+	substringHits := 0
+	for _, group := range groups {
+		for _, word := range group {
+			word = strings.TrimSpace(word)
+			if len([]rune(word)) >= 2 && strings.Contains(term, word) {
+				substringHits++
+				break
+			}
+		}
+	}
+	if len(groups) >= 2 && substringHits >= 2 {
+		return true
+	}
+	return substringHits > 0
+}
+
+func extractSearchQueryTerms(query string) []string {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+	parts := strings.Fields(query)
+	if len(parts) > 1 {
+		return uniqueStrings(parts)
+	}
+	return []string{query}
+}
+
+func filterMisreadChineseKeywords(terms, keywords []string) []string {
+	if len(keywords) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(keywords))
+	for _, keyword := range keywords {
+		if isLikelyChineseHomographConfusion(terms, keyword) {
+			continue
+		}
+		out = append(out, keyword)
+	}
+	return out
+}
+
+func isLikelyChineseHomographConfusion(terms []string, keyword string) bool {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return false
+	}
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" || term == keyword {
+			continue
+		}
+		if strings.Contains(term, keyword) || strings.Contains(keyword, term) {
+			continue
+		}
+		termRunes := []rune(term)
+		keywordRunes := []rune(keyword)
+		if len(termRunes) >= 2 && len(keywordRunes) >= 2 && len(termRunes) == len(keywordRunes) {
+			if termRunes[0] == keywordRunes[0] && termRunes[1] != keywordRunes[1] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func groupsContainAnyTerm(groups [][]string, terms []string) bool {
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		if groupsContainKeyword(groups, term) {
+			return true
+		}
+		for _, group := range groups {
+			for _, word := range group {
+				word = strings.TrimSpace(word)
+				if word == "" {
+					continue
+				}
+				if word == term {
+					return true
+				}
+				if len([]rune(word)) >= 2 && (strings.Contains(term, word) || strings.Contains(word, term)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func groupsContainKeyword(groups [][]string, keyword string) bool {
+	for _, group := range groups {
+		for _, word := range group {
+			if word == keyword {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func prependUnique(prefix, items []string) []string {
+	seen := make(map[string]struct{}, len(prefix)+len(items))
+	out := make([]string, 0, len(prefix)+len(items))
+	for _, word := range prefix {
+		word = strings.TrimSpace(word)
+		if word == "" {
+			continue
+		}
+		if _, ok := seen[word]; ok {
+			continue
+		}
+		seen[word] = struct{}{}
+		out = append(out, word)
+	}
+	for _, word := range items {
+		word = strings.TrimSpace(word)
+		if word == "" {
+			continue
+		}
+		if _, ok := seen[word]; ok {
+			continue
+		}
+		seen[word] = struct{}{}
+		out = append(out, word)
+	}
+	return out
 }
 
 func visualTagsFromConcepts(raw map[string]interface{}) []string {

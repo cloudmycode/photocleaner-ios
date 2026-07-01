@@ -15,8 +15,8 @@ enum VisualSynonyms {
             return ["cat", "kitten", "feline"]
         case "dog", "canine":
             return ["dog", "canine"]
-        case "car", "vehicle", "automobile":
-            return ["car", "vehicle", "automobile"]
+        case "car", "vehicle", "automobile", "conveyance", "sportscar":
+            return ["car", "vehicle", "automobile", "conveyance", "sportscar"]
         case "food", "meal", "dish":
             return ["food", "meal", "dish"]
         default:

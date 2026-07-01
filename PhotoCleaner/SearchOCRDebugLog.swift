@@ -60,5 +60,58 @@ enum SearchOCRDebugLog {
     static func logBatchSaved(count: Int, completed: Int, total: Int) {
         info("saved \(count) entries (\(completed)/\(total))")
     }
+
+    static func logEnrichPhaseStart(pending: Int) {
+        info("[TagEnrich] phase3 start pending=\(pending)")
+    }
+
+    static func logEnrichBatchRequest(batch: Int, count: Int, assetIds: [String]) {
+        let ids = assetIds.map { String($0.prefix(8)) }.joined(separator: ",")
+        info("[TagEnrich] batch \(batch) request count=\(count) ids=\(ids)")
+    }
+
+    static func logEnrichSubmit(asset: PHAsset, ocrSnippet: String) {
+        info(
+            """
+            [TagEnrich] → submit | \(assetLabel(asset))
+            ocrSnippet: \(preview(ocrSnippet, limit: 400))
+            """
+        )
+    }
+
+    static func logEnrichResult(
+        asset: PHAsset,
+        enrichedTags: [String],
+        sensitiveTypes: [String],
+        searchDescription: String
+    ) {
+        let tags = enrichedTags.isEmpty ? "[]" : "[\(enrichedTags.joined(separator: ", "))]"
+        let sensitive = sensitiveTypes.isEmpty ? "[]" : "[\(sensitiveTypes.joined(separator: ", "))]"
+        let description = searchDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        info(
+            """
+            [TagEnrich] ← result | \(assetLabel(asset))
+            enrichedTags: \(tags)
+            sensitiveTypes: \(sensitive)
+            searchDescription: \(description.isEmpty ? "(empty)" : description)
+            """
+        )
+    }
+
+    static func logEnrichBatchSuccess(batch: Int, count: Int, durationMs: Int) {
+        info("[TagEnrich] batch \(batch) ok count=\(count) \(durationMs)ms")
+    }
+
+    static func logEnrichBatchFailed(batch: Int, error: String) {
+        info("[TagEnrich] batch \(batch) failed: \(error)")
+    }
+
+    static func logEnrichFallback(count: Int) {
+        info("[TagEnrich] fallback local SensitiveTypeDetector count=\(count)")
+    }
+
+    static func logEnrichPhaseDone(total: Int, seconds: Double) {
+        info("[TagEnrich] phase3 done total=\(total) (\(String(format: "%.1f", seconds))s)")
+    }
 }
 #endif

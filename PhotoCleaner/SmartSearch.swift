@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Photos
+import UIKit
 
 // MARK: - Config
 
@@ -9,6 +10,15 @@ enum SmartSearchConfig {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: "SmartSearchEndpoint") as? String,
               !raw.isEmpty else { return nil }
         return URL(string: raw)
+    }
+
+    static var enrichEndpoint: URL? {
+        guard let search = endpoint else { return nil }
+        return search.deletingLastPathComponent().appendingPathComponent("enrich-tags")
+    }
+
+    static var deviceID: String {
+        UIDevice.current.identifierForVendor?.uuidString ?? "unknown-device"
     }
 
     static var secret: String {
@@ -50,6 +60,7 @@ struct SearchMust: Decodable {
     var visualTagsAll: [String]?
     var sensitiveTypes: [String]?
     var ocrContainsAll: [String]?
+    var searchKeywordGroups: [[String]]?
 }
 
 struct SearchDateRange: Decodable {
@@ -132,6 +143,85 @@ enum SmartSearchClient {
     }
 }
 
+// MARK: - Tag Enrichment
+
+enum TagEnrichmentClient {
+    static let ocrSnippetLimit = 400
+
+    struct Payload: Encodable {
+        let assetId: String
+        let rawTags: [String]
+        let ocrSnippet: String
+        let mediaType: String
+        let assetTypes: [String]
+    }
+
+    struct ResultItem: Decodable {
+        let assetId: String
+        let enrichedTags: [String]
+        let sensitiveTypes: [String]
+        let searchDescription: String?
+    }
+
+    static func enrich(payloads: [Payload]) async throws -> [ResultItem] {
+        guard let url = SmartSearchConfig.enrichEndpoint, !SmartSearchConfig.secret.isEmpty else {
+            throw SmartSearchError.configurationMissing
+        }
+        guard !payloads.isEmpty else { return [] }
+
+        let deviceID = SmartSearchConfig.deviceID
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(RequestBody(
+            deviceId: deviceID,
+            locale: Locale.current.identifier,
+            appVersion: SmartSearchConfig.appVersion,
+            buildVersion: SmartSearchConfig.buildVersion,
+            items: payloads,
+            sign: md5Sign(deviceID + SmartSearchConfig.secret)
+        ))
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw SmartSearchError.network }
+#if DEBUG
+        if !(200..<300).contains(http.statusCode) {
+            print("[TagEnrich] HTTP \(http.statusCode) url=\(url.absoluteString)")
+        }
+#endif
+        if http.statusCode == 401 { throw SmartSearchError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else {
+#if DEBUG
+            if let url = SmartSearchConfig.enrichEndpoint {
+                print("[TagEnrich] HTTP \(http.statusCode) url=\(url.absoluteString)")
+            }
+#endif
+            throw SmartSearchError.network
+        }
+
+        let decoded = try JSONDecoder().decode(ResponseBody.self, from: data)
+        return decoded.items
+    }
+
+    private struct RequestBody: Encodable {
+        let deviceId: String
+        let locale: String
+        let appVersion: String
+        let buildVersion: String
+        let items: [Payload]
+        let sign: String
+    }
+
+    private struct ResponseBody: Decodable {
+        let items: [ResultItem]
+    }
+
+    private static func md5Sign(_ raw: String) -> String {
+        Insecure.MD5.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 // MARK: - Service
 
 enum SmartSearchService {
@@ -145,6 +235,11 @@ enum SmartSearchService {
             try await SmartSearchClient.fetchPlan(query: query, availableTags: availableTags),
             originalQuery: query
         )
+#if DEBUG
+        if let groups = plan.must?.searchKeywordGroups, !groups.isEmpty {
+            print("[SmartSearch] searchKeywordGroups: \(groups)")
+        }
+#endif
         let index = await store.searchIndex()
 
         let options = PHFetchOptions()
